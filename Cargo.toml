@@ -3,6 +3,8 @@ name = "doomfist"
 version = "0.1.0"
 edition = "2021"
 description = "Doomfist's mechanics rebuilt in Rust, calibrated against Overwatch Workshop logs"
+license = "MIT"
+repository = "https://github.com/dooziedev/tankfist-rs"
 
 [dependencies]
 macroquad = "0.4.14"

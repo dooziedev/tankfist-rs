@@ -1,0 +1,21 @@
+name: Bug / feels wrong
+description: Something in the Rust version (or the bean demo) behaves differently from Overwatch
+title: "Bug: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what does Overwatch do instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to see it
+      description: Keys pressed, timing, where on the map. A bean recording (press F, saved under logs/bean-*.txt) helps a lot; attach it here.
+  - type: input
+    id: system
+    attributes:
+      label: OS
+      placeholder: Windows 11 / Linux / macOS

@@ -1,4 +1,4 @@
-# Doomfist Rewrite
+# tankfist-rs
 
 Overwatch's Doomfist rebuilt in Rust, tick for tick. Nearly every number was measured from
 Overwatch with Workshop logging scripts and checked by replaying the logged inputs through the
@@ -7,6 +7,8 @@ Rust version.
 The character is a built-in mannequin with keyframed animations, all generated in code.
 
 ## Play it
+
+Needs [Rust](https://rustup.rs). Then:
 
 ```bash
 cargo run --release --bin bean
@@ -35,15 +37,17 @@ Mouse sensitivity and FOV use Overwatch's numbers and are saved in `bean_setting
 | `logs/` | Measurement logs from Overwatch (numbers only) used by the tests |
 | `tests/` | Ability tests plus replays of real logs that must keep matching |
 
-## Measuring in Overwatch
+## Help test it
 
-1. Turn on **Enable Workshop Inspector Log File** in Overwatch's options (logs go to
-   `Documents\Overwatch\Workshop\`).
-2. Paste a script from `workshop/` into a custom game:
-   - `doomfist_logger.txt`: records you (Interact starts/stops a take)
-   - `auto_*_tests.txt`: a dummy Doomfist runs a test suite by itself (Interact)
-   - `turn_and_bhop.txt`, playback scripts: record yourself and/or replay recorded inputs on a bot
-3. Analyse:
+Two ways, both through [Issues](../../issues/new/choose):
+
+- **Record Overwatch logs.** Paste one of the `workshop/` scripts into a custom game, play, and
+  attach the log file to a **Log submission** issue. Step-by-step:
+  [docs/submitting-logs.md](docs/submitting-logs.md). Logs are numbers only.
+- **Play the Rust version** and open a **Bug / feels wrong** issue when something doesn't match
+  Overwatch. Pressing F in bean records your run to `logs/bean-*.txt`; attach that too.
+
+To check a log yourself:
 
 ```bash
 cargo run --bin analyze -- logs/hit-01.txt
@@ -62,3 +66,13 @@ knockback and wall slams.
 
 Also measured: Hand Cannon (11 pellets, fire rate, auto refill, falloff), quick melee, punch
 splash. Not built yet: Meteor Strike, surface-angle bounce tech.
+
+## Disclaimer
+
+A fan project for studying game mechanics. Not affiliated with or endorsed by Blizzard
+Entertainment. Overwatch and Doomfist are trademarks of Blizzard Entertainment. No game files,
+models, sounds or code from Overwatch are in this repository.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The disclaimer above still applies to the names.

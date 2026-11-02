@@ -1,0 +1,54 @@
+name: Log submission
+description: Share an Overwatch Workshop log recorded with one of the scripts in workshop/
+title: "Log: "
+labels: ["log"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for recording! The step-by-step guide is in [docs/submitting-logs.md](../blob/main/docs/submitting-logs.md).
+        Logs contain numbers only (positions, speeds, aim, buttons, health, cooldowns, damage); nothing about your account.
+  - type: dropdown
+    id: script
+    attributes:
+      label: Which script did you use?
+      options:
+        - doomfist_logger.txt (my own play)
+        - turn_and_bhop.txt
+        - auto_slam_tests.txt
+        - auto_punch_tests.txt
+        - auto_hit_tests.txt
+        - auto_hit_tests2.txt
+        - auto_gun_tests.txt
+        - a playback script
+        - other / modified script
+    validations:
+      required: true
+  - type: textarea
+    id: takes
+    attributes:
+      label: What happened in each take?
+      description: One line per take is plenty. Automatic test scripts can just say "ran the whole suite".
+      placeholder: |
+        Take 1: walked, jumped, strafed in the air
+        Take 2: full punch, jump cancel while turning right
+        Take 3: slam, held jump into the landing (bunny hop)
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log file
+      description: Drag the .txt file from Documents\Overwatch\Workshop\ here (zip it if it's over 25 MB).
+    validations:
+      required: true
+  - type: input
+    id: patch
+    attributes:
+      label: Overwatch patch / season (if you know it)
+      placeholder: e.g. Season 22
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: Something that looked different from the Rust version, a split you found with `compare`, settings you changed (hero health, cooldowns, gravity), etc.
