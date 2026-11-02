@@ -12,10 +12,9 @@
 //! Overwatch. Compare the two with `cargo run --bin compare -- <bean log> <overwatch log>`.
 
 mod anim;
-mod gltf_load;
 mod mannequin;
 
-use anim::{AnimMap, Model};
+use anim::Model;
 use doomfist::abilities::slam::SlamPhase;
 use doomfist::doomfist::Action;
 use doomfist::events::Event;
@@ -197,30 +196,6 @@ fov = {}
     }
 }
 
-/// Doomfist's model: the user's own exported file from `assets/doomfist/` if there is one
-/// (with `assets/doomfist/animations.txt` naming its clips), otherwise the built-in mannequin.
-fn load_character() -> (Model, AnimMap, String) {
-    let dir = std::path::Path::new("assets/doomfist");
-    let map = std::fs::read_to_string(dir.join("animations.txt")).map(|t| AnimMap::parse(&t)).unwrap_or_default();
-    let file = std::fs::read_dir(dir).ok().and_then(|it| {
-        it.filter_map(|e| e.ok().map(|e| e.path()))
-            .find(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("glb") || x.eq_ignore_ascii_case("gltf")))
-    });
-    if let Some(path) = file {
-        match gltf_load::load(&path) {
-            Ok(mut m) => {
-                let s = map.scale.unwrap_or(1.0);
-                let yaw = map.yaw_offset_deg.unwrap_or(0.0).to_radians();
-                m.fix = Mat4::from_rotation_y(yaw) * Mat4::from_scale(Vec3::splat(s)) * m.fix;
-                let msg = format!("model: {} ({} bones, {} clips)", path.display(), m.bones.len(), m.clips.len());
-                return (m, map, msg);
-            }
-            Err(e) => return (mannequin::build(), AnimMap::default(), format!("model: built-in mannequin ({e})")),
-        }
-    }
-    (mannequin::build(), AnimMap::default(), "model: built-in mannequin (no file in assets/doomfist)".into())
-}
-
 /// Which animation state Doomfist is in, and how fast to play it.
 fn anim_state(d: &doomfist::Doomfist) -> (&'static str, f32) {
     match &d.action {
@@ -242,8 +217,8 @@ fn looping(state: &str) -> bool {
     matches!(state, "idle" | "walk" | "fp_idle")
 }
 
-fn draw_model(model: &Model, map: &AnimMap, player: &anim::Player, feet: Vec3, facing: Vec3, tint: Color) {
-    let pose = player.pose(model, map, looping);
+fn draw_model(model: &Model, player: &anim::Player, feet: Vec3, facing: Vec3, tint: Color) {
+    let pose = player.pose(model, looping);
     let joints = model.joint_matrices(&pose);
     let yaw = facing.x.atan2(facing.z);
     let world = Mat4::from_rotation_translation(Quat::from_rotation_y(yaw), feet);
@@ -258,11 +233,11 @@ const VIEWMODEL_OFFSET: Vec3 = vec3(0.0, -0.46, 0.0);
 
 /// First-person arms: only the arm bones, hung from the anchor bone under the camera so they
 /// follow the aim up and down.
-fn draw_viewmodel(model: &Model, map: &AnimMap, player: &anim::Player, eye: Vec3, yaw: f32, pitch: f32, tint: Color) {
-    let pose = player.pose(model, map, looping);
+fn draw_viewmodel(model: &Model, player: &anim::Player, eye: Vec3, yaw: f32, pitch: f32, tint: Color) {
+    let pose = player.pose(model, looping);
     let globals = model.globals(&pose);
-    let anchor = model.anchor_bone(map.first_person_anchor.as_deref());
-    let keep = model.arm_bones(&map.first_person_bones);
+    let anchor = model.anchor_bone();
+    let keep = model.arm_bones();
     let joints = model.joint_matrices(&pose);
     let cam = Mat4::from_rotation_translation(Quat::from_rotation_y(yaw) * Quat::from_rotation_x(-pitch), eye);
     let world = cam * Mat4::from_translation(VIEWMODEL_OFFSET) * (model.fix * globals[anchor]).inverse();
@@ -309,7 +284,7 @@ fn event_text(e: &Event) -> Option<String> {
 #[macroquad::main(conf)]
 async fn main() {
     let mut sim = new_sim();
-    let (model, anim_map, model_msg) = load_character();
+    let model = mannequin::build();
     let dummy_model = mannequin::build();
     let mut player = anim::Player::new();
     let mut dummy_player = anim::Player::new();
@@ -491,7 +466,7 @@ async fn main() {
         let state: &str = shot_pose.as_deref().unwrap_or(state);
         // First person: idle/walk/jump use the model's first-person ready pose if it has one.
         let first_person = !third_person && (shot.is_none() || shot_fp);
-        let state = if first_person && matches!(state, "idle" | "walk" | "jump") && anim_map.clip_for(&model, "fp_idle").is_some() {
+        let state = if first_person && matches!(state, "idle" | "walk" | "jump") && model.clip("fp_idle").is_some() {
             "fp_idle"
         } else {
             state
@@ -544,7 +519,7 @@ async fn main() {
             if flash.contains_key(&t.id) {
                 tint = Color::new(1.6, 1.5, 1.0, 1.0);
             }
-            draw_model(&dummy_model, &AnimMap::default(), &dummy_player, v(t.pos), v(to_doom), tint);
+            draw_model(&dummy_model, &dummy_player, v(t.pos), v(to_doom), tint);
             let frac = (t.health / t.max_health).clamp(0.0, 1.0);
             draw_cube(v(t.pos) + vec3(0.0, 2.2, 0.0), vec3(1.2 * frac, 0.12, 0.12), None, GREEN);
         }
@@ -560,9 +535,9 @@ async fn main() {
         }
         let tint = if d.empowered { Color::new(1.0, 0.75, 0.45, 1.0) } else { WHITE };
         if first_person {
-            draw_viewmodel(&model, &anim_map, &player, eye, yaw, pitch, tint);
+            draw_viewmodel(&model, &player, eye, yaw, pitch, tint);
         } else {
-            draw_model(&model, &anim_map, &player, v(d.pos), look, tint);
+            draw_model(&model, &player, v(d.pos), look, tint);
         }
         if matches!(d.action, Action::Block(_)) {
             let h = vec3(look.x, 0.0, look.z).normalize_or_zero();
@@ -609,7 +584,7 @@ async fn main() {
         }
         let rec_color = if recording.is_some() { RED } else { Color::from_rgba(30, 30, 30, 255) };
         draw_text(&rec_msg, 16.0, 30.0 + 5.0 * 24.0, 22.0, rec_color);
-        draw_text(&format!("{model_msg}  anim: {}", player.state), 16.0, 30.0 + 6.0 * 24.0, 18.0, Color::from_rgba(30, 30, 30, 255));
+        draw_text(&format!("anim: {}", player.state), 16.0, 30.0 + 6.0 * 24.0, 18.0, Color::from_rgba(30, 30, 30, 255));
         for (i, (t, text)) in feed.iter().enumerate() {
             draw_text(&format!("{t:7.2}  {text}"), 16.0, h - 220.0 + i as f32 * 22.0, 20.0, Color::from_rgba(30, 30, 30, 255));
         }

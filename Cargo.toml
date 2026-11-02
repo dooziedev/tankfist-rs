@@ -5,7 +5,6 @@ edition = "2021"
 description = "Doomfist's mechanics rebuilt in Rust, calibrated against Overwatch Workshop logs"
 
 [dependencies]
-gltf = "1"
 macroquad = "0.4.14"
 
 [[bin]]

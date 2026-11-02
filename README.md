@@ -4,8 +4,7 @@ Overwatch's Doomfist rebuilt in Rust, tick for tick. Nearly every number was mea
 Overwatch with Workshop logging scripts and checked by replaying the logged inputs through the
 Rust version.
 
-No game assets are included or ever committed. A built-in stand-in mannequin is used unless you
-bring a model exported from your own copy of the game (see [docs/animations.md](docs/animations.md)).
+The character is a built-in mannequin with keyframed animations, all generated in code.
 
 ## Play it
 
@@ -29,7 +28,7 @@ Mouse sensitivity and FOV use Overwatch's numbers and are saved in `bean_setting
 | `src/doomfist.rs`, `src/world.rs` | Shared state, tick order, dummies and their knockback |
 | `src/log.rs`, `src/replay.rs` | Read Workshop logs; replay their inputs through the sim |
 | `src/playback.rs`, `src/record.rs` | Turn any recording into a Workshop playback script; write logs from the sim |
-| `src/bin/bean/` | Playable 3D test map, skinned animation, model loading |
+| `src/bin/bean/` | Playable 3D test map, mannequin model and animations |
 | `src/bin/analyze.rs` | Summaries and tables for Workshop logs |
 | `src/bin/compare.rs` | Line up two runs (or the sim against a log) and show where they split |
 | `workshop/` | Workshop scripts: manual logger, automatic test suites, playback |
@@ -63,8 +62,3 @@ knockback and wall slams.
 
 Also measured: Hand Cannon (11 pellets, fire rate, auto refill, falloff), quick melee, punch
 splash. Not built yet: Meteor Strike, surface-angle bounce tech.
-
-## Assets policy
-
-`assets/` is git-ignored, and `git config core.hooksPath scripts/hooks` enables a pre-commit
-check that refuses 3D models, animations, textures and audio anywhere in the repo.

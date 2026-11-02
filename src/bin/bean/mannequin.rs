@@ -1,6 +1,6 @@
-//! Built-in stand-in model: a test-dummy mannequin (white segmented body, round head with eyes,
-//! blue right limbs, red left limbs) with simple keyframed clips for every game state. Used when
-//! no model has been put in `assets/doomfist/`. Entirely generated here, so it's safe to publish.
+//! The character model: a test-dummy mannequin (white segmented body, round head with eyes,
+//! blue right limbs, red left limbs) with simple keyframed clips for every game state, all
+//! generated in code.
 //!
 //! Axes: +Y up, +Z forward, so the character's right side is -X.
 

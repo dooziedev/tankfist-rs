@@ -1,8 +1,7 @@
 //! Skeletal animation for bean: skeleton, clips, sampling, crossfades and CPU skinning.
 //!
-//! A `Model` comes from the user's own exported files (`gltf_load.rs`) or the built-in stand-in
-//! mannequin (`mannequin.rs`). Game states are mapped to clip names by an `AnimMap`, so any
-//! model works as long as its clips are named in the map.
+//! The model is the built-in mannequin (`mannequin.rs`); each game state plays the clip of the
+//! same name.
 
 use macroquad::prelude::*;
 use std::collections::HashMap;
@@ -39,7 +38,6 @@ pub struct Bone {
 pub enum Keys {
     Translation(Vec<Vec3>),
     Rotation(Vec<Quat>),
-    Scale(Vec<Vec3>),
 }
 
 #[derive(Clone, Debug)]
@@ -72,7 +70,7 @@ pub struct Model {
     pub bones: Vec<Bone>,
     pub meshes: Vec<SkinMesh>,
     pub clips: Vec<Clip>,
-    /// Applied to the whole model (for assets in other units or facing another way).
+    /// Applied to the whole model.
     pub fix: Mat4,
 }
 
@@ -103,7 +101,6 @@ impl Model {
             match &ch.keys {
                 Keys::Translation(v) => x.t = v[i].lerp(v[j], f),
                 Keys::Rotation(v) => x.r = v[i].slerp(v[j], f).normalize(),
-                Keys::Scale(v) => x.s = v[i].lerp(v[j], f),
             }
         }
         pose
@@ -127,27 +124,22 @@ impl Model {
         self.globals(pose).iter().zip(&self.bones).map(|(g, b)| *g * b.inverse_bind).collect()
     }
 
-    /// Bones that make up the first-person arms: listed ones, or by name (arm, hand, finger,
-    /// shoulder, ...), plus everything below them.
-    pub fn arm_bones(&self, listed: &[String]) -> Vec<bool> {
+    /// Bones that make up the first-person arms (named like arm, hand, ...), plus everything
+    /// below them.
+    pub fn arm_bones(&self) -> Vec<bool> {
         const WORDS: [&str; 12] =
             ["arm", "hand", "finger", "thumb", "index", "middle", "ring", "pinky", "clavicle", "shoulder", "elbow", "wrist"];
         let mut keep = vec![false; self.bones.len()];
         for (i, b) in self.bones.iter().enumerate() {
             let n = b.name.to_lowercase();
-            let picked = if listed.is_empty() { WORDS.iter().any(|w| n.contains(w)) } else { listed.iter().any(|l| l.eq_ignore_ascii_case(&b.name)) };
+            let picked = WORDS.iter().any(|w| n.contains(w));
             keep[i] = picked || b.parent.is_some_and(|p| keep[p]);
         }
         keep
     }
 
-    /// The bone the first-person arms hang from: the named one, else a chest/upper-spine bone.
-    pub fn anchor_bone(&self, named: Option<&str>) -> usize {
-        if let Some(n) = named {
-            if let Some(i) = self.bones.iter().position(|b| b.name.eq_ignore_ascii_case(n)) {
-                return i;
-            }
-        }
+    /// The bone the first-person arms hang from: a chest/upper-spine bone.
+    pub fn anchor_bone(&self) -> usize {
         for word in ["chest", "spine2", "spine1", "spine"] {
             if let Some(i) = self.bones.iter().position(|b| b.name.to_lowercase().contains(word)) {
                 return i;
@@ -221,45 +213,6 @@ impl Model {
     }
 }
 
-/// Which clip plays for each game state. States are fixed names (see `docs/animations.md`);
-/// clip names are whatever the model calls them.
-#[derive(Clone, Debug, Default)]
-pub struct AnimMap {
-    pub clips: HashMap<String, String>,
-    pub scale: Option<f32>,
-    pub yaw_offset_deg: Option<f32>,
-    /// First-person arms: bones to draw (empty = find by name) and the bone they hang from.
-    pub first_person_bones: Vec<String>,
-    pub first_person_anchor: Option<String>,
-}
-
-impl AnimMap {
-    /// `state = clip name` lines; `#` comments; also `scale = 0.01` and `yaw_offset_deg = 180`.
-    pub fn parse(text: &str) -> AnimMap {
-        let mut m = AnimMap::default();
-        for line in text.lines() {
-            let line = line.split('#').next().unwrap_or("").trim();
-            let Some((k, v)) = line.split_once('=') else { continue };
-            let (k, v) = (k.trim(), v.trim().trim_matches('"'));
-            match k {
-                "scale" => m.scale = v.parse().ok(),
-                "yaw_offset_deg" => m.yaw_offset_deg = v.parse().ok(),
-                "first_person_bones" => m.first_person_bones = v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
-                "first_person_anchor" => m.first_person_anchor = Some(v.to_string()),
-                _ => {
-                    m.clips.insert(k.to_string(), v.to_string());
-                }
-            }
-        }
-        m
-    }
-
-    pub fn clip_for(&self, model: &Model, state: &str) -> Option<usize> {
-        let name = self.clips.get(state).map(|s| s.as_str()).unwrap_or(state);
-        model.clip(name)
-    }
-}
-
 /// Plays one state at a time with a short crossfade between states.
 pub struct Player {
     pub state: String,
@@ -292,9 +245,9 @@ impl Player {
         }
     }
 
-    pub fn pose(&self, model: &Model, map: &AnimMap, looping: impl Fn(&str) -> bool) -> Vec<Xf> {
+    pub fn pose(&self, model: &Model, looping: impl Fn(&str) -> bool) -> Vec<Xf> {
         let at = |state: &str, t: f32| {
-            let clip = map.clip_for(model, state);
+            let clip = model.clip(state);
             let d = clip.map(|c| model.clips[c].duration).unwrap_or(1.0).max(1e-3);
             let t = if looping(state) { t.rem_euclid(d) } else { t.min(d) };
             model.sample(clip, t)
