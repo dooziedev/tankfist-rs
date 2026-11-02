@@ -36,9 +36,17 @@ block        = <clip name>
 fire         = <clip name>
 reload       = <clip name>
 
+fp_idle      = <clip name>   # first-person ready pose (optional)
+
 # optional fixes for how the file was exported
 scale = 1.0            # e.g. 0.01 if the file is in centimetres
 yaw_offset_deg = 0     # e.g. 180 if the model faces backwards
+
+# first person (optional): which bones make up the arms, and the bone they hang from.
+# Without these, bones named like arm/hand/finger/shoulder/clavicle are used, hanging
+# from a chest or upper-spine bone.
+first_person_bones = clavicle_l, clavicle_r
+first_person_anchor = spine_03
 ```
 
 A state with no line uses a clip with the same name as the state, if the file has one. The
@@ -59,6 +67,12 @@ other conventions.
 | `block` | Power Block | no |
 | `fire` | Hand Cannon shot (once the gun is in) | no |
 | `reload` | Hand Cannon reload / refill (once the gun is in) | no |
+| `fp_idle` | first person, used instead of `idle`/`walk`/`jump` if the model has it | yes |
+
+## First person
+
+In first person only the arm bones are drawn, hung from the anchor bone just under the camera
+so they follow your aim up and down. Listed bones include everything below them (fingers).
 
 States switch with a 0.12 s crossfade.
 
@@ -68,5 +82,6 @@ States switch with a 0.12 s crossfade.
 BEAN_SHOT=shot.png BEAN_POSE=block cargo run --release --bin bean
 ```
 
-renders Doomfist from the front holding the given state, saves `shot.png` and exits. Screenshots
+renders Doomfist from the front holding the given state, saves `shot.png` and exits. Add
+`BEAN_VIEW=fp` to capture the first-person view instead. Screenshots
 are git-ignored outside `docs/`.

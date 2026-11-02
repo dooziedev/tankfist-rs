@@ -31,3 +31,4 @@
 *.jpeg
 !docs/**/*.png
 !docs/**/*.jpg
+/bean_settings.txt

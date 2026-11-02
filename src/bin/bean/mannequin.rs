@@ -271,6 +271,13 @@ fn clips(bones: &[Bone]) -> Vec<Clip> {
             .rot(THIGH_R, &[(0.0, -10.0, 0.0, -5.0)])
             .rot(THIGH_L, &[(0.0, 10.0, 0.0, 5.0)])
             .done(),
+        // First-person ready pose: gauntlet (right) raised in front, cannon hand (left) forward.
+        ClipBuilder::new("fp_idle", 2.0)
+            .rot(UARM_R, &[(0.0, -55.0, 0.0, 15.0), (1.0, -58.0, 0.0, 15.0), (2.0, -55.0, 0.0, 15.0)])
+            .rot(FARM_R, &[(0.0, -70.0, 0.0, 0.0)])
+            .rot(UARM_L, &[(0.0, -65.0, 0.0, -12.0), (1.0, -62.0, 0.0, -12.0), (2.0, -65.0, 0.0, -12.0)])
+            .rot(FARM_L, &[(0.0, -25.0, 0.0, 0.0)])
+            .done(),
         // Hand Cannon: fired from the left (red) hand.
         ClipBuilder::new("fire", 0.25)
             .rot(UARM_R, &[(0.0, 0.0, 0.0, -8.0)])

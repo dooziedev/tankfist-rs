@@ -109,8 +109,8 @@ impl Model {
         pose
     }
 
-    /// Joint matrices (global x inverse bind) for a local pose.
-    pub fn joint_matrices(&self, pose: &[Xf]) -> Vec<Mat4> {
+    /// Each bone's transform in model space for a local pose.
+    pub fn globals(&self, pose: &[Xf]) -> Vec<Mat4> {
         let mut global = vec![Mat4::IDENTITY; self.bones.len()];
         for (i, b) in self.bones.iter().enumerate() {
             let local = pose[i].mat();
@@ -119,11 +119,46 @@ impl Model {
                 None => local,
             };
         }
-        global.iter().zip(&self.bones).map(|(g, b)| *g * b.inverse_bind).collect()
+        global
+    }
+
+    /// Joint matrices (global x inverse bind) for a local pose.
+    pub fn joint_matrices(&self, pose: &[Xf]) -> Vec<Mat4> {
+        self.globals(pose).iter().zip(&self.bones).map(|(g, b)| *g * b.inverse_bind).collect()
+    }
+
+    /// Bones that make up the first-person arms: listed ones, or by name (arm, hand, finger,
+    /// shoulder, ...), plus everything below them.
+    pub fn arm_bones(&self, listed: &[String]) -> Vec<bool> {
+        const WORDS: [&str; 12] =
+            ["arm", "hand", "finger", "thumb", "index", "middle", "ring", "pinky", "clavicle", "shoulder", "elbow", "wrist"];
+        let mut keep = vec![false; self.bones.len()];
+        for (i, b) in self.bones.iter().enumerate() {
+            let n = b.name.to_lowercase();
+            let picked = if listed.is_empty() { WORDS.iter().any(|w| n.contains(w)) } else { listed.iter().any(|l| l.eq_ignore_ascii_case(&b.name)) };
+            keep[i] = picked || b.parent.is_some_and(|p| keep[p]);
+        }
+        keep
+    }
+
+    /// The bone the first-person arms hang from: the named one, else a chest/upper-spine bone.
+    pub fn anchor_bone(&self, named: Option<&str>) -> usize {
+        if let Some(n) = named {
+            if let Some(i) = self.bones.iter().position(|b| b.name.eq_ignore_ascii_case(n)) {
+                return i;
+            }
+        }
+        for word in ["chest", "spine2", "spine1", "spine"] {
+            if let Some(i) = self.bones.iter().position(|b| b.name.to_lowercase().contains(word)) {
+                return i;
+            }
+        }
+        0
     }
 
     /// Skins every mesh with simple lighting and returns macroquad meshes placed by `world`.
-    pub fn build_meshes(&self, joints: &[Mat4], world: Mat4, tint: Color) -> Vec<Mesh> {
+    /// With `keep`, only triangles whose vertices are mostly driven by kept bones are drawn.
+    pub fn build_meshes(&self, joints: &[Mat4], world: Mat4, tint: Color, keep: Option<&[bool]>) -> Vec<Mesh> {
         let light = vec3(0.4, 1.0, 0.3).normalize();
         let world = world * self.fix;
         let mut out = Vec::new();
@@ -152,7 +187,22 @@ impl Model {
             }
             // macroquad draws at most ~5000 indices / 10000 vertices per call (16-bit indices):
             // split meshes into chunks of 1600 triangles.
-            for tris in m.indices.chunks(3 * 1600) {
+            let main_bone = |v: u32| {
+                let (j, w) = (m.joints[v as usize], m.weights[v as usize]);
+                let k = (0..4).max_by(|&a, &b| w[a].total_cmp(&w[b])).unwrap_or(0);
+                j[k] as usize
+            };
+            let indices: Vec<u32> = match keep {
+                Some(keep) => m
+                    .indices
+                    .chunks(3)
+                    .filter(|t| t.iter().all(|&v| keep.get(main_bone(v)).copied().unwrap_or(false)))
+                    .flatten()
+                    .copied()
+                    .collect(),
+                None => m.indices.clone(),
+            };
+            for tris in indices.chunks(3 * 1600) {
                 let mut map = HashMap::new();
                 let mut chunk_verts = Vec::new();
                 let mut idx = Vec::with_capacity(tris.len());
@@ -178,6 +228,9 @@ pub struct AnimMap {
     pub clips: HashMap<String, String>,
     pub scale: Option<f32>,
     pub yaw_offset_deg: Option<f32>,
+    /// First-person arms: bones to draw (empty = find by name) and the bone they hang from.
+    pub first_person_bones: Vec<String>,
+    pub first_person_anchor: Option<String>,
 }
 
 impl AnimMap {
@@ -191,6 +244,8 @@ impl AnimMap {
             match k {
                 "scale" => m.scale = v.parse().ok(),
                 "yaw_offset_deg" => m.yaw_offset_deg = v.parse().ok(),
+                "first_person_bones" => m.first_person_bones = v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+                "first_person_anchor" => m.first_person_anchor = Some(v.to_string()),
                 _ => {
                     m.clips.insert(k.to_string(), v.to_string());
                 }

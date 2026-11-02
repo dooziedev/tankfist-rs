@@ -94,6 +94,54 @@ fn save_recording(rows: &[String]) -> String {
     format!("saved {log_path} + {ow_path}{cut}")
 }
 
+/// Player settings, read from `bean_settings.txt` (`key = value` lines). Overwatch's units:
+/// sensitivity turns 0.0066° per raw mouse count per point; FOV is horizontal degrees.
+struct Settings {
+    sensitivity: f32,
+    fov_h: f32,
+}
+
+const SETTINGS_FILE: &str = "bean_settings.txt";
+
+impl Settings {
+    fn load() -> Settings {
+        let mut s = Settings { sensitivity: 5.0, fov_h: 103.0 };
+        if let Ok(text) = std::fs::read_to_string(SETTINGS_FILE) {
+            for line in text.lines() {
+                let Some((k, v)) = line.split('#').next().unwrap_or("").split_once('=') else { continue };
+                let Ok(v) = v.trim().parse::<f32>() else { continue };
+                match k.trim() {
+                    "sensitivity" => s.sensitivity = v,
+                    "fov" => s.fov_h = v.clamp(60.0, 120.0),
+                    _ => {}
+                }
+            }
+        }
+        s
+    }
+
+    fn save(&self) {
+        let _ = std::fs::write(
+            SETTINGS_FILE,
+            format!("# Overwatch units: sensitivity (default 5), fov = horizontal degrees (default 103)
+sensitivity = {}
+fov = {}
+", self.sensitivity, self.fov_h),
+        );
+    }
+
+    /// Radians of turn per raw mouse count.
+    fn rad_per_count(&self) -> f32 {
+        (self.sensitivity * 0.0066).to_radians()
+    }
+
+    /// Vertical field of view for the current window shape.
+    fn fovy(&self) -> f32 {
+        let aspect = screen_width() / screen_height().max(1.0);
+        2.0 * ((self.fov_h.to_radians() * 0.5).tan() / aspect).atan()
+    }
+}
+
 /// Doomfist's model: the user's own exported file from `assets/doomfist/` if there is one
 /// (with `assets/doomfist/animations.txt` naming its clips), otherwise the built-in mannequin.
 fn load_character() -> (Model, AnimMap, String) {
@@ -135,7 +183,7 @@ fn anim_state(d: &doomfist::Doomfist) -> (&'static str, f32) {
 }
 
 fn looping(state: &str) -> bool {
-    matches!(state, "idle" | "walk")
+    matches!(state, "idle" | "walk" | "fp_idle")
 }
 
 fn draw_model(model: &Model, map: &AnimMap, player: &anim::Player, feet: Vec3, facing: Vec3, tint: Color) {
@@ -143,7 +191,26 @@ fn draw_model(model: &Model, map: &AnimMap, player: &anim::Player, feet: Vec3, f
     let joints = model.joint_matrices(&pose);
     let yaw = facing.x.atan2(facing.z);
     let world = Mat4::from_rotation_translation(Quat::from_rotation_y(yaw), feet);
-    for mesh in model.build_meshes(&joints, world, tint) {
+    for mesh in model.build_meshes(&joints, world, tint, None) {
+        draw_mesh(&mesh);
+    }
+}
+
+/// Where the arms' anchor bone sits relative to the eye in first person (x right is -X,
+/// y up, z forward), m.
+const VIEWMODEL_OFFSET: Vec3 = vec3(0.0, -0.46, 0.0);
+
+/// First-person arms: only the arm bones, hung from the anchor bone under the camera so they
+/// follow the aim up and down.
+fn draw_viewmodel(model: &Model, map: &AnimMap, player: &anim::Player, eye: Vec3, yaw: f32, pitch: f32, tint: Color) {
+    let pose = player.pose(model, map, looping);
+    let globals = model.globals(&pose);
+    let anchor = model.anchor_bone(map.first_person_anchor.as_deref());
+    let keep = model.arm_bones(&map.first_person_bones);
+    let joints = model.joint_matrices(&pose);
+    let cam = Mat4::from_rotation_translation(Quat::from_rotation_y(yaw) * Quat::from_rotation_x(-pitch), eye);
+    let world = cam * Mat4::from_translation(VIEWMODEL_OFFSET) * (model.fix * globals[anchor]).inverse();
+    for mesh in model.build_meshes(&joints, world, tint, Some(&keep)) {
         draw_mesh(&mesh);
     }
 }
@@ -194,9 +261,12 @@ async fn main() {
     // renders from in front of Doomfist, saves the frame and exits.
     let shot = std::env::var("BEAN_SHOT").ok();
     let shot_pose = std::env::var("BEAN_POSE").ok();
+    // BEAN_VIEW=fp keeps the first-person view in screenshots.
+    let shot_fp = std::env::var("BEAN_VIEW").is_ok_and(|v| v == "fp");
     let mut frame_no = 0u32;
     let dt = sim.doom.tun.dt();
     let (mut yaw, mut pitch) = (0.0f32, 0.0f32);
+    let mut settings = Settings::load();
     let mut grabbed = true;
     set_cursor_grab(true);
     show_mouse(false);
@@ -226,7 +296,7 @@ async fn main() {
         let (dx, dy) = (m.0 - last_mouse.0, m.1 - last_mouse.1);
         last_mouse = m;
         if grabbed {
-            let sens = 0.0025;
+            let sens = settings.rad_per_count();
             yaw -= dx * sens;
             // While dashing the camera can only look within the cone around the dash.
             if let Action::Punch(s) = &sim.doom.action {
@@ -236,6 +306,14 @@ async fn main() {
                 yaw = dash_yaw + off.clamp(-cone, cone);
             }
             pitch = (pitch - dy * sens).clamp(-1.55, 1.55);
+        }
+        // [ and ] change sensitivity in Overwatch steps of 0.25 and save it.
+        for (key, step) in [(KeyCode::LeftBracket, -0.25), (KeyCode::RightBracket, 0.25)] {
+            if is_key_pressed(key) {
+                settings.sensitivity = (settings.sensitivity + step).clamp(0.25, 100.0);
+                settings.save();
+                feed.push_front((sim.doom.time, format!("sensitivity {:.2}", settings.sensitivity)));
+            }
         }
         if is_key_pressed(KeyCode::V) {
             third_person = !third_person;
@@ -308,6 +386,13 @@ async fn main() {
         let frame_dt = get_frame_time().min(0.1) * speeds[speed_i];
         let (state, rate) = anim_state(&sim.doom);
         let state: &str = shot_pose.as_deref().unwrap_or(state);
+        // First person: idle/walk/jump use the model's first-person ready pose if it has one.
+        let first_person = !third_person && (shot.is_none() || shot_fp);
+        let state = if first_person && matches!(state, "idle" | "walk" | "jump") && anim_map.clip_for(&model, "fp_idle").is_some() {
+            "fp_idle"
+        } else {
+            state
+        };
         player.update(state, frame_dt, rate);
         dummy_player.update("idle", frame_dt, 1.0);
 
@@ -315,19 +400,19 @@ async fn main() {
         clear_background(Color::from_rgba(150, 190, 230, 255));
         let d = &sim.doom;
         let look = v(facing);
-        let eye = if shot.is_some() {
+        let eye = if shot.is_some() && !shot_fp {
             v(d.pos) + vec3(look.x, 0.0, look.z).normalize_or_zero() * 3.6 + vec3(0.0, 1.3, 0.0)
         } else if third_person {
             v(d.pos) + vec3(0.0, 2.4, 0.0) - vec3(look.x, 0.0, look.z).normalize_or_zero() * 6.0
         } else {
             v(d.pos) + vec3(0.0, 1.6, 0.0)
         };
-        let target = if shot.is_some() { v(d.pos) + vec3(0.0, 1.1, 0.0) } else { eye + look };
+        let target = if shot.is_some() && !shot_fp { v(d.pos) + vec3(0.0, 1.1, 0.0) } else { eye + look };
         set_camera(&Camera3D {
             position: eye,
             target,
             up: vec3(0.0, 1.0, 0.0),
-            fovy: 70f32.to_radians(),
+            fovy: settings.fovy(),
             ..Default::default()
         });
 
@@ -358,8 +443,10 @@ async fn main() {
         for w in trail.iter().zip(trail.iter().skip(1)) {
             draw_line_3d(*w.0, *w.1, Color::from_rgba(255, 220, 60, 200));
         }
-        if third_person || shot.is_some() {
-            let tint = if d.empowered { Color::new(1.0, 0.75, 0.45, 1.0) } else { WHITE };
+        let tint = if d.empowered { Color::new(1.0, 0.75, 0.45, 1.0) } else { WHITE };
+        if first_person {
+            draw_viewmodel(&model, &anim_map, &player, eye, yaw, pitch, tint);
+        } else {
             draw_model(&model, &anim_map, &player, v(d.pos), look, tint);
         }
         if matches!(d.action, Action::Block(_)) {
@@ -398,7 +485,7 @@ async fn main() {
             draw_text(&format!("{t:7.2}  {text}"), 16.0, h - 220.0 + i as f32 * 22.0, 20.0, Color::from_rgba(30, 30, 30, 255));
         }
         draw_text(
-            "WASD move  Space jump  RMB punch (hold)  Shift slam  E block  F record  V 3rd person  T slow-mo  R reset  H dummies  Esc mouse",
+            "WASD move  Space jump  RMB punch (hold)  Shift slam  E block  F record  V 3rd person  T slow-mo  R reset  H dummies  [ ] sensitivity  Esc mouse",
             16.0,
             h - 16.0,
             18.0,
