@@ -1,0 +1,477 @@
+settings
+{
+	main
+	{
+		Description: "Doomfist Hand Cannon tests (fire rate, ammo, reload, damage). Stand on flat open ground; a wall is not needed. Stand on flat ground 30-60 m from a straight wall, face it squarely, press Interact. A dummy Doomfist and six target dummies run every test; each test is logged as its own take."
+	}
+
+	modes
+	{
+		Skirmish
+		{
+			enabled maps
+			{
+				Workshop Chamber
+			}
+		}
+
+		General
+		{
+			Game Mode Start: Immediately
+			Respawn Time Scalar: 0%
+		}
+	}
+
+	heroes
+	{
+		Team 1
+		{
+			enabled heroes
+			{
+				Doomfist
+			}
+		}
+	}
+}
+
+variables
+{
+	global:
+		0: Recording
+		1: Take
+		2: Running
+		3: Bot
+		4: Origin
+		5: Yaw
+		6: Fwd
+		7: Side
+		8: WallDist
+		9: Suite
+		10: I
+		11: J
+		12: LabelA
+		13: LabelB
+		14: LabelC
+		15: Targets
+		16: Attacker
+		17: Charge
+		18: Charges
+		19: WallDistances
+		20: Angles
+		21: Amounts
+		22: GridF
+		23: GridS
+		24: Landing
+		25: Hits
+		26: BotStart
+}
+
+subroutines
+{
+	0: ResetAll
+	1: BeginTake
+	2: FinishTake
+	3: DoPunch
+	4: EmpowerBot
+}
+
+rule("Setup: test lists")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	actions
+	{
+		"Suite 41: gap between two single shots, s"
+		Global.Charges = Array(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.9);
+		"Suite 44: one shot at an Ana this far away, m"
+		Global.WallDistances = Array(3, 6, 10, 15, 20, 30);
+	}
+}
+
+rule("Run all tests (Interact)")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Dummy Bot(Event Player) == False;
+		Is Button Held(Event Player, Button(Interact)) == True;
+		Global.Running == False;
+	}
+
+	actions
+	{
+		Global.Running = True;
+		Global.Yaw = Horizontal Facing Angle Of(Event Player);
+		Global.Fwd = Direction From Angles(Global.Yaw, 0);
+		Global.Side = Direction From Angles(Global.Yaw - 90, 0);
+		Global.Origin = Position Of(Event Player) + Global.Side * 4;
+		Global.WallDist = Distance Between(Eye Position(Event Player), Ray Cast Hit Position(Eye Position(Event Player), Eye Position(Event Player) + Global.Fwd * 80, Null, All Players(All Teams), False));
+		Global.Landing = Global.Origin + Global.Fwd * 13.81;
+		If(Entity Exists(Global.Bot) == False);
+			Create Dummy Bot(Hero(Doomfist), Team Of(Event Player), -1, Global.Origin, Global.Fwd);
+			Create Dummy Bot(Hero(Ana), Opposite Team Of(Team Of(Event Player)), 0, Global.Origin - Global.Fwd * 12, Global.Fwd);
+			Create Dummy Bot(Hero(Ana), Opposite Team Of(Team Of(Event Player)), 1, Global.Origin - Global.Fwd * 12 + Global.Side * 3, Global.Fwd);
+			Create Dummy Bot(Hero(Ana), Opposite Team Of(Team Of(Event Player)), 2, Global.Origin - Global.Fwd * 12 + Global.Side * 6, Global.Fwd);
+			Create Dummy Bot(Hero(Ana), Opposite Team Of(Team Of(Event Player)), 3, Global.Origin - Global.Fwd * 12 + Global.Side * 9, Global.Fwd);
+			Create Dummy Bot(Hero(Reinhardt), Opposite Team Of(Team Of(Event Player)), 4, Global.Origin - Global.Fwd * 12 + Global.Side * 12, Global.Fwd);
+			Create Dummy Bot(Hero(Soldier: 76), Opposite Team Of(Team Of(Event Player)), 5, Global.Origin - Global.Fwd * 12 + Global.Side * 15, Global.Fwd);
+			Wait(1.5, Ignore Condition);
+			Global.Bot = First Of(Filtered Array(All Players(Team Of(Event Player)), Is Dummy Bot(Current Array Element) == True && Hero Of(Current Array Element) == Hero(Doomfist)));
+			Global.Targets = Array(Players In Slot(0, Opposite Team Of(Team Of(Event Player))), Players In Slot(1, Opposite Team Of(Team Of(Event Player))), Players In Slot(2, Opposite Team Of(Team Of(Event Player))), Players In Slot(3, Opposite Team Of(Team Of(Event Player))), Players In Slot(4, Opposite Team Of(Team Of(Event Player))));
+			Global.Attacker = Players In Slot(5, Opposite Team Of(Team Of(Event Player)));
+			Set Max Health(Global.Targets, 1000);
+			Set Max Health(Global.Attacker, 1000);
+		End;
+		Small Message(All Players(All Teams), Custom String("Hit tests running (wall {0} m)", Round To Integer(Global.WallDist, To Nearest)));
+
+		"Suite 40: hold fire from a full clip for 3 s at an Ana 6 m away"
+		Global.Suite = 40;
+		Global.LabelA = 6;
+		Global.LabelB = 0;
+		Global.LabelC = 0;
+		Call Subroutine(ResetAll);
+		Teleport(First Of(Global.Targets), Global.Origin + Global.Fwd * 6);
+		Set Ammo(Global.Bot, 0, Max Ammo(Global.Bot, 0));
+		Wait(0.3, Ignore Condition);
+		Set Facing(Global.Bot, Direction Towards(Eye Position(Global.Bot), Position Of(First Of(Global.Targets)) + Vector(0, 1, 0)), To World);
+		Call Subroutine(BeginTake);
+		Start Holding Button(Global.Bot, Button(Primary Fire));
+		Log To Inspector(Custom String("E;{0};13", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+		Wait(3, Ignore Condition);
+		Stop Holding Button(Global.Bot, Button(Primary Fire));
+		Log To Inspector(Custom String("E;{0};14", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+		Call Subroutine(FinishTake);
+
+		"Suite 41: two single shots with a gap (LabelA = gap s), into open air"
+		Global.Suite = 41;
+		For Global Variable(I, 0, Count Of(Global.Charges), 1);
+			Global.LabelA = Value In Array(Global.Charges, Global.I);
+			Global.LabelB = 0;
+			Global.LabelC = 0;
+			Call Subroutine(ResetAll);
+			Set Ammo(Global.Bot, 0, Max Ammo(Global.Bot, 0));
+			Wait(0.3, Ignore Condition);
+			Call Subroutine(BeginTake);
+			Press Button(Global.Bot, Button(Primary Fire));
+			Log To Inspector(Custom String("E;{0};15", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+			Wait(Global.LabelA, Ignore Condition);
+			Press Button(Global.Bot, Button(Primary Fire));
+			Log To Inspector(Custom String("E;{0};15", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+			Call Subroutine(FinishTake);
+		End;
+
+		"Suite 42: empty the clip, then wait 6 s to watch it refill on its own"
+		Global.Suite = 42;
+		Global.LabelA = 0;
+		Call Subroutine(ResetAll);
+		Set Ammo(Global.Bot, 0, Max Ammo(Global.Bot, 0));
+		Wait(0.3, Ignore Condition);
+		Call Subroutine(BeginTake);
+		Start Holding Button(Global.Bot, Button(Primary Fire));
+		Log To Inspector(Custom String("E;{0};13", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+		Wait(2, Ignore Condition);
+		Stop Holding Button(Global.Bot, Button(Primary Fire));
+		Log To Inspector(Custom String("E;{0};14", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+		Wait(6, Ignore Condition);
+		Call Subroutine(FinishTake);
+
+		"Suite 43: empty the clip, then press Reload (LabelA = 1), or fire 1 shot then Reload (LabelA = 2)"
+		Global.Suite = 43;
+		For Global Variable(I, 1, 3, 1);
+			Global.LabelA = Global.I;
+			Call Subroutine(ResetAll);
+			Set Ammo(Global.Bot, 0, Max Ammo(Global.Bot, 0));
+			Wait(0.3, Ignore Condition);
+			Call Subroutine(BeginTake);
+			If(Global.I == 1);
+				Start Holding Button(Global.Bot, Button(Primary Fire));
+				Log To Inspector(Custom String("E;{0};13", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+				Wait(2, Ignore Condition);
+				Stop Holding Button(Global.Bot, Button(Primary Fire));
+				Log To Inspector(Custom String("E;{0};14", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+			Else;
+				Press Button(Global.Bot, Button(Primary Fire));
+				Log To Inspector(Custom String("E;{0};15", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+				Wait(0.3, Ignore Condition);
+			End;
+			Press Button(Global.Bot, Button(Reload));
+			Log To Inspector(Custom String("E;{0};16", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+			Wait(4, Ignore Condition);
+			Call Subroutine(FinishTake);
+		End;
+
+		"Suite 44: one shot at an Ana at distance LabelA m (damage per pellet, pellets that hit, falloff)"
+		Global.Suite = 44;
+		For Global Variable(I, 0, Count Of(Global.WallDistances), 1);
+			Global.LabelA = Value In Array(Global.WallDistances, Global.I);
+			Call Subroutine(ResetAll);
+			Teleport(First Of(Global.Targets), Global.Origin + Global.Fwd * Global.LabelA);
+			Set Ammo(Global.Bot, 0, Max Ammo(Global.Bot, 0));
+			Wait(0.3, Ignore Condition);
+			Set Facing(Global.Bot, Direction Towards(Eye Position(Global.Bot), Position Of(First Of(Global.Targets)) + Vector(0, 1, 0)), To World);
+			Wait(0.1, Ignore Condition);
+			Call Subroutine(BeginTake);
+			Press Button(Global.Bot, Button(Primary Fire));
+			Log To Inspector(Custom String("E;{0};15", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+			Call Subroutine(FinishTake);
+		End;
+		Call Subroutine(ResetAll);
+		Small Message(All Players(All Teams), Custom String("Gun tests done: {0} takes", Global.Take));
+		Global.Running = False;
+	}
+}
+
+rule("Sub: reset everyone")
+{
+	event
+	{
+		Subroutine;
+		ResetAll;
+	}
+
+	actions
+	{
+		Stop Holding Button(Global.Bot, Button(Secondary Fire));
+		Stop Holding Button(Global.Bot, Button(Ability 2));
+		Wait(0.3, Ignore Condition);
+		Teleport(Global.Bot, Global.Origin);
+		Set Facing(Global.Bot, Global.Fwd, To World);
+		Set Ability Cooldown(Global.Bot, Button(Secondary Fire), 0);
+		Set Ability Cooldown(Global.Bot, Button(Ability 1), 0);
+		Set Ability Cooldown(Global.Bot, Button(Ability 2), 0);
+		Heal(Global.Bot, Null, 10000);
+		For Global Variable(J, 0, 5, 1);
+			Teleport(Value In Array(Global.Targets, Global.J), Global.Origin - Global.Fwd * 12 + Global.Side * (Global.J * 3));
+			Set Facing(Value In Array(Global.Targets, Global.J), Global.Fwd * -1, To World);
+			Heal(Value In Array(Global.Targets, Global.J), Null, 100000);
+		End;
+		Teleport(Global.Attacker, Global.Origin - Global.Fwd * 12 + Global.Side * 15);
+		Heal(Global.Attacker, Null, 100000);
+		Wait(0.7, Ignore Condition);
+	}
+}
+
+rule("Sub: begin a take")
+{
+	event
+	{
+		Subroutine;
+		BeginTake;
+	}
+
+	actions
+	{
+		Global.Take += 1;
+		Global.Recording = True;
+		Log To Inspector(Custom String("R;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Global.Take, True));
+		Log To Inspector(Custom String("Z;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Global.Suite, Custom String("{0};{1};{2}", Round To Integer(Global.LabelA * 1000, To Nearest), Round To Integer(Global.LabelB * 1000, To Nearest), Round To Integer(Global.LabelC * 1000, To Nearest))));
+		Wait(0.2, Ignore Condition);
+	}
+}
+
+rule("Sub: finish a take")
+{
+	event
+	{
+		Subroutine;
+		FinishTake;
+	}
+
+	actions
+	{
+		Wait(2.5, Ignore Condition);
+		Stop Holding Button(Global.Bot, Button(Secondary Fire));
+		Global.Recording = False;
+		Log To Inspector(Custom String("R;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Global.Take, False));
+	}
+}
+
+rule("Sub: punch with Global.Charge seconds of hold")
+{
+	event
+	{
+		Subroutine;
+		DoPunch;
+	}
+
+	actions
+	{
+		Start Holding Button(Global.Bot, Button(Secondary Fire));
+		Log To Inspector(Custom String("E;{0};4", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+		Wait(Max(Global.Charge, 0.016), Ignore Condition);
+		Stop Holding Button(Global.Bot, Button(Secondary Fire));
+		Log To Inspector(Custom String("E;{0};5", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+	}
+}
+
+rule("Sub: block, take Global.Hits x 25 frontal damage, wait for the block to end")
+{
+	event
+	{
+		Subroutine;
+		EmpowerBot;
+	}
+
+	actions
+	{
+		Teleport(Global.Attacker, Position Of(Global.Bot) + Global.Fwd * 8);
+		Wait(0.2, Ignore Condition);
+		Press Button(Global.Bot, Button(Ability 2));
+		Log To Inspector(Custom String("E;{0};2", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+		Wait(0.3, Ignore Condition);
+		For Global Variable(J, 0, Global.Hits, 1);
+			Damage(Global.Bot, Global.Attacker, 25);
+			Log To Inspector(Custom String("E;{0};11", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+			Wait(0.05, Ignore Condition);
+		End;
+		Wait Until(Is Using Ability 2(Global.Bot) == False, 4);
+		Log To Inspector(Custom String("E;{0};12", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+		Heal(Global.Bot, Null, 10000);
+		Teleport(Global.Attacker, Global.Origin - Global.Fwd * 12 + Global.Side * 15);
+		Wait(0.3, Ignore Condition);
+	}
+}
+
+rule("Log bot ammo every tick")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Global.Recording == True;
+		Event Player == Global.Bot;
+	}
+
+	actions
+	{
+		Log To Inspector(Custom String("A;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1}", Ammo(Event Player, 0), Max Ammo(Event Player, 0)), Custom String("{0};{1};{2}", Is Firing Primary(Event Player), Is Reloading(Event Player), Is Button Held(Event Player, Button(Primary Fire)))));
+		Wait(0.016, Ignore Condition);
+		Loop If Condition Is True;
+	}
+}
+
+rule("Log targets every tick")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Global.Recording == True;
+		Is Dummy Bot(Event Player) == True;
+		Event Player != Global.Bot;
+	}
+
+	actions
+	{
+		Log To Inspector(Custom String("P;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Slot Of(Event Player), Custom String("{0};{1};{2}", Custom String("{0};{1};{2}", Round To Integer(X Component Of(Position Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Position Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Position Of(Event Player)) * 1000, To Nearest)), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Velocity Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Velocity Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Velocity Of(Event Player)) * 1000, To Nearest)), Round To Integer(Health(Event Player) * 1000, To Nearest))));
+		Wait(0.016, Ignore Condition);
+		Loop If Condition Is True;
+	}
+}
+
+rule("Log bot damage dealt")
+{
+	event
+	{
+		Player Dealt Damage;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Global.Recording == True;
+		Event Player == Global.Bot;
+	}
+
+	actions
+	{
+		Log To Inspector(Custom String("D;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1}", Index Of Array Value(Array(Button(Primary Fire), Button(Secondary Fire), Button(Ability 1), Button(Ability 2), Button(Ultimate), Button(Melee)), Event Ability), Round To Integer(Event Damage * 1000, To Nearest)), Slot Of(Victim)));
+	}
+}
+
+rule("Log bot damage taken")
+{
+	event
+	{
+		Player Took Damage;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Global.Recording == True;
+		Event Player == Global.Bot;
+	}
+
+	actions
+	{
+		Log To Inspector(Custom String("T;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Round To Integer(Event Damage * 1000, To Nearest), Slot Of(Attacker)));
+	}
+}
+
+rule("Log bot knockback dealt")
+{
+	event
+	{
+		Player Dealt Knockback;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Global.Recording == True;
+		Event Player == Global.Bot;
+	}
+
+	actions
+	{
+		Log To Inspector(Custom String("K;{0};{1}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Slot Of(Victim)));
+	}
+}
+
+rule("Log test bot every tick")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Global.Recording == True;
+		Event Player == Global.Bot;
+	}
+
+	actions
+	{
+		Log To Inspector(Custom String("F;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Position Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Position Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Position Of(Event Player)) * 1000, To Nearest)), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Velocity Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Velocity Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Velocity Of(Event Player)) * 1000, To Nearest))));
+		Log To Inspector(Custom String("I;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Facing Direction Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Facing Direction Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Facing Direction Of(Event Player)) * 1000, To Nearest)), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Throttle Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Throttle Of(Event Player)) * 1000, To Nearest), Custom String("{0};{1};{2}", Custom String("{0};{1};{2}", Is Button Held(Event Player, Button(Secondary Fire)), Is Button Held(Event Player, Button(Ability 1)), Is Button Held(Event Player, Button(Ability 2))), Is Button Held(Event Player, Button(Jump)), Is Button Held(Event Player, Button(Crouch))))));
+		Log To Inspector(Custom String("S;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1};{2}", Round To Integer(Health(Event Player) * 1000, To Nearest), Round To Integer(Max Health(Event Player) * 1000, To Nearest), Is On Ground(Event Player)), Custom String("{0};{1}", Custom String("{0};{1};{2}", Is Using Ability 1(Event Player), Is Using Ability 2(Event Player), Is Firing Secondary(Event Player)), Custom String("{0};{1};{2}", Round To Integer(Ability Cooldown(Event Player, Button(Secondary Fire)) * 1000, To Nearest), Round To Integer(Ability Cooldown(Event Player, Button(Ability 1)) * 1000, To Nearest), Round To Integer(Ability Cooldown(Event Player, Button(Ability 2)) * 1000, To Nearest)))));
+		Wait(0.016, Ignore Condition);
+		Loop If Condition Is True;
+	}
+}

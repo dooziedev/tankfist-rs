@@ -1,0 +1,288 @@
+settings
+{
+	main
+	{
+		Description: "Doomfist input playback (@LABEL@, @TICKS@ ticks). Interact: record yourself (start/stop). Melee+Interact: a dummy Doomfist replays the embedded inputs (stand on open ground facing forward). Every tick is logged."
+	}
+
+	modes
+	{
+		Skirmish
+		{
+			enabled maps
+			{
+				Workshop Expanse
+			}
+		}
+
+		General
+		{
+			Game Mode Start: Immediately
+			Respawn Time Scalar: 0%
+		}
+	}
+
+	heroes
+	{
+		Team 1
+		{
+			enabled heroes
+			{
+				Doomfist
+			}
+		}
+	}
+}
+
+variables
+{
+	global:
+		0: Recording
+		1: Take
+		2: Running
+		3: Bot
+		4: Origin
+		5: Yaw
+		6: Tick
+		7: Events
+		8: KeyTicks
+		9: KeyYaws
+		10: KeyPitches
+		11: KeyState
+		12: ButtonBits
+		13: EventIndex
+		14: AimIndex
+		15: TickCount
+		16: AimFrac
+		17: HumanRec
+		18: ThrottleX
+		19: ThrottleZ
+}
+
+rule("Playback data: @LABEL@")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	actions
+	{
+@ARRAYS@
+	}
+}
+
+rule("Start bot playback (Melee + Interact)")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Dummy Bot(Event Player) == False;
+		Is Button Held(Event Player, Button(Interact)) == True;
+		Is Button Held(Event Player, Button(Melee)) == True;
+		Global.Running == False;
+		Global.HumanRec == False;
+	}
+
+	actions
+	{
+		Global.Running = True;
+		Global.Yaw = Horizontal Facing Angle Of(Event Player);
+		Global.Origin = Position Of(Event Player) + Direction From Angles(Global.Yaw - 90, 0) * 4;
+		If(Entity Exists(Global.Bot) == False);
+			Create Dummy Bot(Hero(Doomfist), Team Of(Event Player), -1, Global.Origin, Direction From Angles(Global.Yaw, 0));
+			Wait(1, Ignore Condition);
+			Global.Bot = First Of(Filtered Array(All Players(Team Of(Event Player)), Is Dummy Bot(Current Array Element) == True && Hero Of(Current Array Element) == Hero(Doomfist)));
+		End;
+		Stop Throttle In Direction(Global.Bot);
+		Stop Holding Button(Global.Bot, Button(Secondary Fire));
+		Stop Holding Button(Global.Bot, Button(Ability 1));
+		Stop Holding Button(Global.Bot, Button(Ability 2));
+		Stop Holding Button(Global.Bot, Button(Jump));
+		Stop Holding Button(Global.Bot, Button(Crouch));
+		Wait(0.3, Ignore Condition);
+		Teleport(Global.Bot, Global.Origin);
+		Set Facing(Global.Bot, Direction From Angles(Global.Yaw + First Of(Global.KeyYaws), First Of(Global.KeyPitches)), To World);
+		Set Ability Cooldown(Global.Bot, Button(Secondary Fire), 0);
+		Set Ability Cooldown(Global.Bot, Button(Ability 1), 0);
+		Set Ability Cooldown(Global.Bot, Button(Ability 2), 0);
+		Heal(Global.Bot, Null, 10000);
+		Small Message(All Players(All Teams), Custom String("Playing back @LABEL@"));
+		Wait(1, Ignore Condition);
+		Global.Take += 1;
+		Log To Inspector(Custom String("R;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Global.Take, True));
+		"Throttle is started once and follows these two variables: re-issuing it mid-charge made the bot's punch fire early."
+		Global.ThrottleX = 0;
+		Global.ThrottleZ = 0;
+		Start Throttle In Direction(Global.Bot, Vector(Global.ThrottleX, 0, Global.ThrottleZ), Magnitude Of(Vector(Global.ThrottleX, 0, Global.ThrottleZ)), To Player, Replace Existing Throttle, Direction and Magnitude);
+		Global.Tick = 0;
+		Global.EventIndex = 0;
+		Global.AimIndex = 0;
+		Global.Recording = True;
+		Wait Until(Global.Recording == False, 600);
+		Small Message(All Players(All Teams), Custom String("Playback done"));
+		Global.Running = False;
+	}
+}
+
+rule("Playback: apply one tick of inputs")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	conditions
+	{
+		Global.Recording == True;
+	}
+
+	actions
+	{
+		"Keys: each event is tick x 1000 + state (buttons + 32 x (throttle X + 1) + 128 x (throttle Z + 1))"
+		If(Global.EventIndex < Count Of(Global.Events));
+			If(Round To Integer(Value In Array(Global.Events, Global.EventIndex) / 1000, Down) <= Global.Tick);
+				Global.KeyState = Value In Array(Global.Events, Global.EventIndex) % 1000;
+				Global.EventIndex += 1;
+				Global.ButtonBits = Global.KeyState % 32;
+				Global.ThrottleX = (Round To Integer(Global.KeyState / 32, Down) % 4) - 1;
+				Global.ThrottleZ = Round To Integer(Global.KeyState / 128, Down) - 1;
+				If(Round To Integer(Global.ButtonBits / 1, Down) % 2 == 1);
+					Start Holding Button(Global.Bot, Button(Secondary Fire));
+				Else;
+					Stop Holding Button(Global.Bot, Button(Secondary Fire));
+				End;
+				If(Round To Integer(Global.ButtonBits / 2, Down) % 2 == 1);
+					Start Holding Button(Global.Bot, Button(Ability 1));
+				Else;
+					Stop Holding Button(Global.Bot, Button(Ability 1));
+				End;
+				If(Round To Integer(Global.ButtonBits / 4, Down) % 2 == 1);
+					Start Holding Button(Global.Bot, Button(Ability 2));
+				Else;
+					Stop Holding Button(Global.Bot, Button(Ability 2));
+				End;
+				If(Round To Integer(Global.ButtonBits / 8, Down) % 2 == 1);
+					Start Holding Button(Global.Bot, Button(Jump));
+				Else;
+					Stop Holding Button(Global.Bot, Button(Jump));
+				End;
+				If(Round To Integer(Global.ButtonBits / 16, Down) % 2 == 1);
+					Start Holding Button(Global.Bot, Button(Crouch));
+				Else;
+					Stop Holding Button(Global.Bot, Button(Crouch));
+				End;
+			End;
+		End;
+		"Aim: slide between keyframes"
+		If(Global.AimIndex < Count Of(Global.KeyTicks) - 1);
+			If(Value In Array(Global.KeyTicks, Global.AimIndex + 1) <= Global.Tick);
+				Global.AimIndex += 1;
+			End;
+		End;
+		If(Global.AimIndex < Count Of(Global.KeyTicks) - 1);
+			Global.AimFrac = (Global.Tick - Value In Array(Global.KeyTicks, Global.AimIndex)) / (Value In Array(Global.KeyTicks, Global.AimIndex + 1) - Value In Array(Global.KeyTicks, Global.AimIndex));
+			Set Facing(Global.Bot, Direction From Angles(Global.Yaw + Value In Array(Global.KeyYaws, Global.AimIndex) + (Value In Array(Global.KeyYaws, Global.AimIndex + 1) - Value In Array(Global.KeyYaws, Global.AimIndex)) * Global.AimFrac, Value In Array(Global.KeyPitches, Global.AimIndex) + (Value In Array(Global.KeyPitches, Global.AimIndex + 1) - Value In Array(Global.KeyPitches, Global.AimIndex)) * Global.AimFrac), To World);
+		Else;
+			Set Facing(Global.Bot, Direction From Angles(Global.Yaw + Value In Array(Global.KeyYaws, Global.AimIndex), Value In Array(Global.KeyPitches, Global.AimIndex)), To World);
+		End;
+		Global.Tick += 1;
+		If(Global.Tick >= Global.TickCount);
+			Stop Throttle In Direction(Global.Bot);
+			Stop Holding Button(Global.Bot, Button(Secondary Fire));
+			Stop Holding Button(Global.Bot, Button(Ability 1));
+			Stop Holding Button(Global.Bot, Button(Ability 2));
+			Stop Holding Button(Global.Bot, Button(Jump));
+			Stop Holding Button(Global.Bot, Button(Crouch));
+			Wait(1, Ignore Condition);
+			Global.Recording = False;
+			Log To Inspector(Custom String("R;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Global.Take, False));
+		End;
+		Wait(0.016, Ignore Condition);
+		Loop If Condition Is True;
+	}
+}
+
+rule("Record yourself (Interact)")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Dummy Bot(Event Player) == False;
+		Is Button Held(Event Player, Button(Interact)) == True;
+		Is Button Held(Event Player, Button(Melee)) == False;
+		Global.Running == False;
+	}
+
+	actions
+	{
+		Global.HumanRec = !Global.HumanRec;
+		If(Global.HumanRec == True);
+			Global.Take += 1;
+		End;
+		Log To Inspector(Custom String("R;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Global.Take, Global.HumanRec));
+		Small Message(Event Player, Custom String("Take {0} recording you: {1}", Global.Take, Global.HumanRec));
+	}
+}
+
+rule("Log you every tick")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Global.HumanRec == True;
+		Is Dummy Bot(Event Player) == False;
+	}
+
+	actions
+	{
+		Log To Inspector(Custom String("F;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Position Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Position Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Position Of(Event Player)) * 1000, To Nearest)), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Velocity Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Velocity Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Velocity Of(Event Player)) * 1000, To Nearest))));
+		Log To Inspector(Custom String("I;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Facing Direction Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Facing Direction Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Facing Direction Of(Event Player)) * 1000, To Nearest)), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Throttle Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Throttle Of(Event Player)) * 1000, To Nearest), Custom String("{0};{1};{2}", Custom String("{0};{1};{2}", Is Button Held(Event Player, Button(Secondary Fire)), Is Button Held(Event Player, Button(Ability 1)), Is Button Held(Event Player, Button(Ability 2))), Is Button Held(Event Player, Button(Jump)), Is Button Held(Event Player, Button(Crouch))))));
+		Log To Inspector(Custom String("S;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1};{2}", Round To Integer(Health(Event Player) * 1000, To Nearest), Round To Integer(Max Health(Event Player) * 1000, To Nearest), Is On Ground(Event Player)), Custom String("{0};{1}", Custom String("{0};{1};{2}", Is Using Ability 1(Event Player), Is Using Ability 2(Event Player), Is Firing Secondary(Event Player)), Custom String("{0};{1};{2}", Round To Integer(Ability Cooldown(Event Player, Button(Secondary Fire)) * 1000, To Nearest), Round To Integer(Ability Cooldown(Event Player, Button(Ability 1)) * 1000, To Nearest), Round To Integer(Ability Cooldown(Event Player, Button(Ability 2)) * 1000, To Nearest)))));
+		Wait(0.016, Ignore Condition);
+		Loop If Condition Is True;
+	}
+}
+
+rule("Log test bot every tick")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Global.Recording == True;
+		Event Player == Global.Bot;
+	}
+
+	actions
+	{
+		Log To Inspector(Custom String("F;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Position Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Position Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Position Of(Event Player)) * 1000, To Nearest)), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Velocity Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Velocity Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Velocity Of(Event Player)) * 1000, To Nearest))));
+		Log To Inspector(Custom String("I;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Facing Direction Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Facing Direction Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Facing Direction Of(Event Player)) * 1000, To Nearest)), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Throttle Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Throttle Of(Event Player)) * 1000, To Nearest), Custom String("{0};{1};{2}", Custom String("{0};{1};{2}", Is Button Held(Event Player, Button(Secondary Fire)), Is Button Held(Event Player, Button(Ability 1)), Is Button Held(Event Player, Button(Ability 2))), Is Button Held(Event Player, Button(Jump)), Is Button Held(Event Player, Button(Crouch))))));
+		Log To Inspector(Custom String("S;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1};{2}", Round To Integer(Health(Event Player) * 1000, To Nearest), Round To Integer(Max Health(Event Player) * 1000, To Nearest), Is On Ground(Event Player)), Custom String("{0};{1}", Custom String("{0};{1};{2}", Is Using Ability 1(Event Player), Is Using Ability 2(Event Player), Is Firing Secondary(Event Player)), Custom String("{0};{1};{2}", Round To Integer(Ability Cooldown(Event Player, Button(Secondary Fire)) * 1000, To Nearest), Round To Integer(Ability Cooldown(Event Player, Button(Ability 1)) * 1000, To Nearest), Round To Integer(Ability Cooldown(Event Player, Button(Ability 2)) * 1000, To Nearest)))));
+		Wait(0.016, Ignore Condition);
+		Loop If Condition Is True;
+	}
+}

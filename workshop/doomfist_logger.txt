@@ -1,0 +1,378 @@
+settings
+{
+	main
+	{
+		Description: "Doomfist logger. Interact: start/stop take. Crouch+Interact: reset. Melee+Interact: place Soldier dummy at crosshair. Ultimate+Interact: place Reinhardt dummy. Reload+Interact: dummies shoot you on/off."
+	}
+
+	modes
+	{
+		Skirmish
+		{
+			enabled maps
+			{
+				Workshop Chamber
+			}
+		}
+
+		General
+		{
+			Game Mode Start: Immediately
+			Respawn Time Scalar: 0%
+		}
+	}
+
+	heroes
+	{
+		Team 1
+		{
+			enabled heroes
+			{
+				Doomfist
+			}
+		}
+	}
+}
+
+variables
+{
+	global:
+		0: Recording
+		1: Take
+		2: Reset
+		3: Shooting
+
+	player:
+		0: Origin
+		1: OriginFacing
+		2: Spot
+}
+
+rule("Toggle recording (Interact)")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Is Dummy Bot(Event Player) == False;
+		Is Button Held(Event Player, Button(Interact)) == True;
+		Is Button Held(Event Player, Button(Crouch)) == False;
+		Is Button Held(Event Player, Button(Melee)) == False;
+		Is Button Held(Event Player, Button(Ultimate)) == False;
+		Is Button Held(Event Player, Button(Reload)) == False;
+	}
+
+	actions
+	{
+		Global.Recording = !Global.Recording;
+		If(Global.Recording == True);
+			Global.Take += 1;
+			Event Player.Origin = Position Of(Event Player);
+			Event Player.OriginFacing = Facing Direction Of(Event Player);
+		End;
+		Log To Inspector(Custom String("R;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Global.Take, Global.Recording));
+		Small Message(Event Player, Custom String("Take {0} recording: {1}", Global.Take, Global.Recording));
+	}
+}
+
+rule("Log Doomfist every tick")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Global.Recording == True;
+		Is Dummy Bot(Event Player) == False;
+	}
+
+	actions
+	{
+		Log To Inspector(Custom String("F;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Position Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Position Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Position Of(Event Player)) * 1000, To Nearest)), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Velocity Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Velocity Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Velocity Of(Event Player)) * 1000, To Nearest))));
+		Log To Inspector(Custom String("I;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Facing Direction Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Facing Direction Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Facing Direction Of(Event Player)) * 1000, To Nearest)), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Throttle Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Throttle Of(Event Player)) * 1000, To Nearest), Custom String("{0};{1};{2}", Custom String("{0};{1};{2}", Is Button Held(Event Player, Button(Secondary Fire)), Is Button Held(Event Player, Button(Ability 1)), Is Button Held(Event Player, Button(Ability 2))), Is Button Held(Event Player, Button(Jump)), Is Button Held(Event Player, Button(Crouch))))));
+		Log To Inspector(Custom String("S;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1};{2}", Round To Integer(Health(Event Player) * 1000, To Nearest), Round To Integer(Max Health(Event Player) * 1000, To Nearest), Is On Ground(Event Player)), Custom String("{0};{1}", Custom String("{0};{1};{2}", Is Using Ability 1(Event Player), Is Using Ability 2(Event Player), Is Firing Secondary(Event Player)), Custom String("{0};{1};{2}", Round To Integer(Ability Cooldown(Event Player, Button(Secondary Fire)) * 1000, To Nearest), Round To Integer(Ability Cooldown(Event Player, Button(Ability 1)) * 1000, To Nearest), Round To Integer(Ability Cooldown(Event Player, Button(Ability 2)) * 1000, To Nearest)))));
+		Wait(0.016, Ignore Condition);
+		Loop If Condition Is True;
+	}
+}
+
+rule("Log other players every tick")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Global.Recording == True;
+		Hero Of(Event Player) != Hero(Doomfist);
+	}
+
+	actions
+	{
+		Log To Inspector(Custom String("P;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Slot Of(Event Player), Custom String("{0};{1};{2}", Custom String("{0};{1};{2}", Round To Integer(X Component Of(Position Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Position Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Position Of(Event Player)) * 1000, To Nearest)), Custom String("{0};{1};{2}", Round To Integer(X Component Of(Velocity Of(Event Player)) * 1000, To Nearest), Round To Integer(Y Component Of(Velocity Of(Event Player)) * 1000, To Nearest), Round To Integer(Z Component Of(Velocity Of(Event Player)) * 1000, To Nearest)), Round To Integer(Health(Event Player) * 1000, To Nearest))));
+		Wait(0.016, Ignore Condition);
+		Loop If Condition Is True;
+	}
+}
+
+rule("Log damage dealt")
+{
+	event
+	{
+		Player Dealt Damage;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Global.Recording == True;
+	}
+
+	actions
+	{
+		Log To Inspector(Custom String("D;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Custom String("{0};{1}", Index Of Array Value(Array(Button(Primary Fire), Button(Secondary Fire), Button(Ability 1), Button(Ability 2), Button(Ultimate), Button(Melee)), Event Ability), Round To Integer(Event Damage * 1000, To Nearest)), Slot Of(Victim)));
+	}
+}
+
+rule("Log damage taken")
+{
+	event
+	{
+		Player Took Damage;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Global.Recording == True;
+	}
+
+	actions
+	{
+		Log To Inspector(Custom String("T;{0};{1};{2}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Round To Integer(Event Damage * 1000, To Nearest), Slot Of(Attacker)));
+	}
+}
+
+rule("Log knockback dealt")
+{
+	event
+	{
+		Player Dealt Knockback;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Global.Recording == True;
+	}
+
+	actions
+	{
+		Log To Inspector(Custom String("K;{0};{1}", Round To Integer(Total Time Elapsed * 1000, To Nearest), Slot Of(Victim)));
+	}
+}
+
+rule("Reset (Crouch + Interact)")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Is Dummy Bot(Event Player) == False;
+		Is Button Held(Event Player, Button(Crouch)) == True;
+		Is Button Held(Event Player, Button(Interact)) == True;
+	}
+
+	actions
+	{
+		Teleport(Event Player, Event Player.Origin);
+		Set Facing(Event Player, Event Player.OriginFacing, To World);
+		Heal(Event Player, Null, 10000);
+		Set Ability Cooldown(Event Player, Button(Secondary Fire), 0);
+		Set Ability Cooldown(Event Player, Button(Ability 1), 0);
+		Set Ability Cooldown(Event Player, Button(Ability 2), 0);
+		Global.Reset = True;
+		Wait(0.25, Ignore Condition);
+		Global.Reset = False;
+	}
+}
+
+rule("Place Soldier dummy (Melee + Interact)")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Is Dummy Bot(Event Player) == False;
+		Is Button Held(Event Player, Button(Melee)) == True;
+		Is Button Held(Event Player, Button(Interact)) == True;
+	}
+
+	actions
+	{
+		Event Player.Spot = Ray Cast Hit Position(Eye Position(Event Player), Eye Position(Event Player) + Facing Direction Of(Event Player) * 40, Null, All Players(All Teams), False);
+		Create Dummy Bot(Hero(Soldier: 76), Opposite Team Of(Team Of(Event Player)), -1, Event Player.Spot, Direction Towards(Event Player.Spot, Position Of(Event Player)));
+	}
+}
+
+rule("Place Reinhardt dummy (Ultimate + Interact)")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Is Dummy Bot(Event Player) == False;
+		Is Button Held(Event Player, Button(Ultimate)) == True;
+		Is Button Held(Event Player, Button(Interact)) == True;
+	}
+
+	actions
+	{
+		Event Player.Spot = Ray Cast Hit Position(Eye Position(Event Player), Eye Position(Event Player) + Facing Direction Of(Event Player) * 40, Null, All Players(All Teams), False);
+		Create Dummy Bot(Hero(Reinhardt), Opposite Team Of(Team Of(Event Player)), -1, Event Player.Spot, Direction Towards(Event Player.Spot, Position Of(Event Player)));
+	}
+}
+
+rule("Dummy: remember spawn point")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Dummy Bot(Event Player) == True;
+		Has Spawned(Event Player) == True;
+	}
+
+	actions
+	{
+		Wait(0.25, Ignore Condition);
+		Event Player.Origin = Position Of(Event Player);
+		Event Player.OriginFacing = Facing Direction Of(Event Player);
+	}
+}
+
+rule("Dummy: reset")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Dummy Bot(Event Player) == True;
+		Global.Reset == True;
+	}
+
+	actions
+	{
+		Teleport(Event Player, Event Player.Origin);
+		Set Facing(Event Player, Event Player.OriginFacing, To World);
+		Heal(Event Player, Null, 10000);
+	}
+}
+
+rule("Toggle dummies shooting (Reload + Interact)")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		Doomfist;
+	}
+
+	conditions
+	{
+		Is Dummy Bot(Event Player) == False;
+		Is Button Held(Event Player, Button(Reload)) == True;
+		Is Button Held(Event Player, Button(Interact)) == True;
+	}
+
+	actions
+	{
+		Global.Shooting = !Global.Shooting;
+		Small Message(Event Player, Custom String("Dummies shooting: {0}", Global.Shooting));
+	}
+}
+
+rule("Dummy: shoot Doomfist")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Dummy Bot(Event Player) == True;
+		Global.Shooting == True;
+	}
+
+	actions
+	{
+		Start Facing(Event Player, Direction Towards(Eye Position(Event Player), Position Of(First Of(Players On Hero(Hero(Doomfist), All Teams))) + Vector(0, 1, 0)), 10000, To World, Direction and Turn Rate);
+		Start Holding Button(Event Player, Button(Primary Fire));
+	}
+}
+
+rule("Dummy: stop shooting")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Dummy Bot(Event Player) == True;
+		Global.Shooting == False;
+	}
+
+	actions
+	{
+		Stop Holding Button(Event Player, Button(Primary Fire));
+		Stop Facing(Event Player);
+	}
+}
