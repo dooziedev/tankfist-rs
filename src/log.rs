@@ -18,7 +18,8 @@
 //!                                                      1 slam, 2 block, 3 jump, 4 punch charge start, 5 punch release, 6 turn,
 //!                                                      7 start holding jump, 8 stop holding jump, 9 bot seen on the ground,
 //!                                                      11 script dealt damage to the bot, 12 bot's Power Block ended,
-//!                                                      13 start holding fire, 14 stop holding fire, 15 one shot, 16 reload
+//!                                                      13 start holding fire, 14 stop holding fire, 15 one shot, 16 reload,
+//!                                                      17 quick melee
 //!   A;t;ammo;max_ammo;firing;reloading;fire_held        Hand Cannon ammo, every tick (whole numbers)
 //!   Z;t;suite;a;b;c                                    hit-test label (a, b, c x1000; meaning depends on the suite,
 //!                                                      see workshop/auto_hit_tests.txt)

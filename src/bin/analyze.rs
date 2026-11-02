@@ -445,6 +445,9 @@ fn hit_table(takes: &[&Take]) {
             42 => "Hand Cannon: empty the clip, then 6 s to refill".into(),
             43 => format!("Hand Cannon: {}, then press Reload", if a < 1.5 { "empty the clip" } else { "fire one shot" }),
             44 => format!("Hand Cannon: one shot at an Ana {a:.0} m away"),
+            45 => format!("normal punch splash: second Ana {a:.1} m beside the target"),
+            46 => format!("quick melee: Ana {a:.1} m away, {b:.0} deg off center"),
+            47 => format!("quick melee twice, {a:.1} s apart"),
             30 => format!("Power Block arc: {c:.0} raw damage from {a:.0} deg"),
             31 => format!("empower threshold: one frontal hit of {a:.2} raw ({:.2} prevented if 75%), then full punch", a * 0.75),
             32 => format!("slam hit area edges: grid {a:.0}"),
@@ -488,7 +491,7 @@ fn hit_table(takes: &[&Take]) {
         if !changes.is_empty() {
             println!("    ammo: {}", changes.join(" "));
         }
-        if (40..=44).contains(&suite) {
+        if (40..=47).contains(&suite) {
             let mut volleys: std::collections::BTreeMap<i64, (usize, f32)> = Default::default();
             for r in &take.rows {
                 if let Row::Dealt { t, damage, .. } = r {

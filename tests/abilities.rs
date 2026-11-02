@@ -295,3 +295,30 @@ fn slam_can_be_cancelled_by_pressing_it_again_after_half_a_second() {
     assert_eq!(s.doom.current(), None);
     assert!(s.doom.vel.horizontal().length() > speed * 0.9, "keeps its speed");
 }
+
+// ---------- Quick melee, normal punch splash ----------
+
+#[test]
+fn melee_hits_in_front_only_and_gives_no_temp_health() {
+    let mut s = sim();
+    s.world.targets.push(Target::new(1, Vec3::new(0.0, 0.0, 1.5)));
+    s.world.targets.push(Target::new(2, Vec3::new(0.0, 0.0, -1.5)));
+    let ev = s.step(&Input { melee: true, ..look(Vec3::FORWARD) });
+    let hits: Vec<u32> = ev.iter().filter_map(|e| match e { Event::DamageDealt { target, .. } => Some(*target), _ => None }).collect();
+    assert_eq!(hits, vec![1]);
+    assert_eq!(s.doom.overhealth, 0.0, "melee doesn't feed the passive");
+    // Cooldown: pressing again right away does nothing.
+    s.step(&look(Vec3::FORWARD));
+    let ev = s.step(&Input { melee: true, ..look(Vec3::FORWARD) });
+    assert!(!has(&ev, |e| matches!(e, Event::DamageDealt { .. })));
+}
+
+#[test]
+fn normal_punch_also_hits_a_nearby_enemy() {
+    let mut s = sim();
+    s.world.targets.push(Target::new(1, Vec3::new(0.0, 0.0, 8.0)));
+    s.world.targets.push(Target::new(2, Vec3::new(2.0, 0.0, 8.0)));
+    let ev = punch(&mut s, 0.5, 0.5);
+    let hit: Vec<u32> = ev.iter().filter_map(|e| match e { Event::DamageDealt { target, kind: HitKind::Impact, .. } => Some(*target), _ => None }).collect();
+    assert!(hit.contains(&1) && hit.contains(&2), "{hit:?}");
+}

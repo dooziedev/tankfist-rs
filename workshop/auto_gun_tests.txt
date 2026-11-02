@@ -2,7 +2,7 @@ settings
 {
 	main
 	{
-		Description: "Doomfist Hand Cannon tests (fire rate, ammo, reload, damage). Stand on flat open ground; a wall is not needed. Stand on flat ground 30-60 m from a straight wall, face it squarely, press Interact. A dummy Doomfist and six target dummies run every test; each test is logged as its own take."
+		Description: "Doomfist Hand Cannon, punch splash and quick melee tests. Stand on flat open ground; a wall is not needed. Stand on flat ground 30-60 m from a straight wall, face it squarely, press Interact. A dummy Doomfist and six target dummies run every test; each test is logged as its own take."
 	}
 
 	modes
@@ -222,6 +222,50 @@ rule("Run all tests (Interact)")
 			Call Subroutine(BeginTake);
 			Press Button(Global.Bot, Button(Primary Fire));
 			Log To Inspector(Custom String("E;{0};15", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+			Call Subroutine(FinishTake);
+		End;
+		"Suite 45: normal (not empowered) full punch at an Ana 6 m away, second Ana LabelA m to the side"
+		Global.Suite = 45;
+		For Global Variable(I, 0, 4, 1);
+			Global.LabelA = Value In Array(Array(1, 2, 3, 4.5), Global.I);
+			Call Subroutine(ResetAll);
+			Teleport(First Of(Global.Targets), Global.Origin + Global.Fwd * 6);
+			Teleport(Value In Array(Global.Targets, 1), Global.Origin + Global.Fwd * 6 + Global.Side * Global.LabelA);
+			Wait(0.3, Ignore Condition);
+			Call Subroutine(BeginTake);
+			Global.Charge = 1;
+			Call Subroutine(DoPunch);
+			Call Subroutine(FinishTake);
+		End;
+
+		"Suite 46: quick melee at an Ana LabelA m away, LabelB degrees off to the side"
+		Global.Suite = 46;
+		For Global Variable(I, 0, 7, 1);
+			Global.LabelA = Value In Array(Array(1.5, 2.5, 3.5, 4.5, 2, 2, 2), Global.I);
+			Global.LabelB = Value In Array(Array(0, 0, 0, 0, 30, 60, 90), Global.I);
+			Call Subroutine(ResetAll);
+			Teleport(First Of(Global.Targets), Global.Origin + Direction From Angles(Global.Yaw + Global.LabelB, 0) * Global.LabelA);
+			Wait(0.3, Ignore Condition);
+			Call Subroutine(BeginTake);
+			Press Button(Global.Bot, Button(Melee));
+			Log To Inspector(Custom String("E;{0};17", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+			Call Subroutine(FinishTake);
+		End;
+		Global.LabelB = 0;
+
+		"Suite 47: two quick melees LabelA seconds apart at an Ana 1.5 m away (melee cooldown)"
+		Global.Suite = 47;
+		For Global Variable(I, 0, 5, 1);
+			Global.LabelA = Value In Array(Array(0.3, 0.5, 0.7, 0.9, 1.2), Global.I);
+			Call Subroutine(ResetAll);
+			Teleport(First Of(Global.Targets), Global.Origin + Global.Fwd * 1.5);
+			Wait(0.3, Ignore Condition);
+			Call Subroutine(BeginTake);
+			Press Button(Global.Bot, Button(Melee));
+			Log To Inspector(Custom String("E;{0};17", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
+			Wait(Global.LabelA, Ignore Condition);
+			Press Button(Global.Bot, Button(Melee));
+			Log To Inspector(Custom String("E;{0};17", Round To Integer(Total Time Elapsed * 1000, To Nearest)));
 			Call Subroutine(FinishTake);
 		End;
 		Call Subroutine(ResetAll);

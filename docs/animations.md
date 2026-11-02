@@ -33,6 +33,7 @@ punch        = <clip name>
 slam_leap    = <clip name>
 slam_land    = <clip name>
 block        = <clip name>
+melee        = <clip name>
 fire         = <clip name>
 reload       = <clip name>
 
@@ -65,6 +66,7 @@ other conventions.
 | `slam_leap` | Seismic Slam, in the air | no |
 | `slam_land` | Seismic Slam, touchdown and slide | no |
 | `block` | Power Block | no |
+| `melee` | quick melee (0.35 s) | no |
 | `fire` | Hand Cannon shot (once the gun is in) | no |
 | `reload` | Hand Cannon reload / refill (once the gun is in) | no |
 | `fp_idle` | first person, used instead of `idle`/`walk`/`jump` if the model has it | yes |

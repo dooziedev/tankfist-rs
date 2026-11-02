@@ -94,6 +94,61 @@ fn save_recording(rows: &[String]) -> String {
     format!("saved {log_path} + {ow_path}{cut}")
 }
 
+#[derive(Clone, Copy)]
+enum FxKind {
+    Shockwave,
+    Burst,
+    Number,
+}
+
+impl FxKind {
+    fn life(&self) -> f32 {
+        match self {
+            FxKind::Shockwave => 0.5,
+            FxKind::Burst => 0.2,
+            FxKind::Number => 0.8,
+        }
+    }
+}
+
+struct Fx {
+    kind: FxKind,
+    pos: Vec3,
+    dir: Vec3,
+    t: f32,
+    value: f32,
+}
+
+impl Fx {
+    /// Slam: the hit cone spreading out at Overwatch's ~42 m/s; bursts: a fading puff.
+    fn draw_3d(&self, near: f32, far: f32, half_angle_deg: f32) {
+        let fade = 1.0 - self.t / self.kind.life();
+        match self.kind {
+            FxKind::Shockwave => {
+                let r = (near + 42.0 * self.t).min(far);
+                let side = vec3(self.dir.z, 0.0, -self.dir.x);
+                let ground = self.pos + vec3(0.0, 0.05, 0.0);
+                let col = Color::new(1.0, 0.75, 0.25, fade);
+                let a = half_angle_deg.to_radians();
+                let point = |dist: f32, ang: f32| ground + (self.dir * ang.cos() + side * ang.sin()) * dist;
+                let steps = 16;
+                for i in 0..steps {
+                    let a0 = -a + 2.0 * a * i as f32 / steps as f32;
+                    let a1 = -a + 2.0 * a * (i + 1) as f32 / steps as f32;
+                    draw_line_3d(point(r, a0), point(r, a1), col);
+                    draw_line_3d(point(r * 0.85, a0), point(r * 0.85, a1), col);
+                }
+                draw_line_3d(point(near, -a), point(r, -a), col);
+                draw_line_3d(point(near, a), point(r, a), col);
+            }
+            FxKind::Burst => {
+                draw_sphere_wires(self.pos, 0.3 + self.t * 3.0, None, Color::new(1.0, 0.9, 0.4, fade));
+            }
+            FxKind::Number => {}
+        }
+    }
+}
+
 /// Player settings, read from `bean_settings.txt` (`key = value` lines). Overwatch's units:
 /// sensitivity turns 0.0066° per raw mouse count per point; FOV is horizontal degrees.
 struct Settings {
@@ -174,6 +229,7 @@ fn anim_state(d: &doomfist::Doomfist) -> (&'static str, f32) {
         Action::Punch(_) => ("punch", 1.0),
         Action::Slam(s) if matches!(s.phase, SlamPhase::Air { .. }) => ("slam_leap", 1.0),
         Action::Slam(_) => ("slam_land", 1.0),
+        Action::Idle if d.melee_anim < 0.35 => ("melee", 1.0),
         Action::Idle if !d.grounded => ("jump", 1.0),
         Action::Idle => {
             let speed = d.vel.horizontal().length();
@@ -284,6 +340,11 @@ async fn main() {
     let mut top_speed = 0.0f32;
     // Presses shorter than a tick still count: latch them until the next sim step.
     let (mut jump_latch, mut slam_latch, mut block_latch, mut punch_latch) = (false, false, false, false);
+    let mut melee_latch = false;
+    // Hit effects: slam shockwaves, impact bursts, hit flashes and floating damage numbers.
+    let mut fx: Vec<Fx> = Vec::new();
+    let mut flash: std::collections::HashMap<u32, f32> = Default::default();
+    let mut prev_state = String::new();
 
     loop {
         // ---- input ----
@@ -315,7 +376,7 @@ async fn main() {
                 feed.push_front((sim.doom.time, format!("sensitivity {:.2}", settings.sensitivity)));
             }
         }
-        if is_key_pressed(KeyCode::V) {
+        if is_key_pressed(KeyCode::Tab) {
             third_person = !third_person;
         }
         if is_key_pressed(KeyCode::T) {
@@ -343,6 +404,7 @@ async fn main() {
         slam_latch |= is_key_pressed(KeyCode::LeftShift);
         block_latch |= is_key_pressed(KeyCode::E);
         punch_latch |= is_mouse_button_pressed(MouseButton::Right);
+        melee_latch |= is_key_pressed(KeyCode::V);
 
         let facing = DVec3::new(yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos());
         let axis = |pos: KeyCode, neg: KeyCode| (is_key_down(pos) as i32 - is_key_down(neg) as i32) as f32;
@@ -360,14 +422,23 @@ async fn main() {
                 secondary: is_mouse_button_down(MouseButton::Right) || punch_latch,
                 ability1: is_key_down(KeyCode::LeftShift) || slam_latch,
                 ability2: is_key_down(KeyCode::E) || block_latch,
+                melee: is_key_down(KeyCode::V) || melee_latch,
             };
             (jump_latch, slam_latch, block_latch, punch_latch) = (false, false, false, false);
+            melee_latch = false;
             tick += 1;
             let events = sim.step(&input);
             if let Some(rows) = &mut recording {
                 rows.extend(log_rows(tick * 16, &sim.doom, &input));
             }
             for e in events {
+                if let Event::DamageDealt { target, amount, .. } = e {
+                    if let Some(t) = sim.world.target(target) {
+                        fx.push(Fx { kind: FxKind::Burst, pos: v(t.center()), dir: Vec3::ZERO, t: 0.0, value: 0.0 });
+                        fx.push(Fx { kind: FxKind::Number, pos: v(t.pos) + vec3(0.0, 2.4, 0.0), dir: Vec3::ZERO, t: 0.0, value: amount });
+                        flash.insert(target, 0.25);
+                    }
+                }
                 if let Some(t) = event_text(&e) {
                     feed.push_front((sim.doom.time, t));
                 }
@@ -385,6 +456,22 @@ async fn main() {
         // ---- animation ----
         let frame_dt = get_frame_time().min(0.1) * speeds[speed_i];
         let (state, rate) = anim_state(&sim.doom);
+        if state == "slam_land" && prev_state == "slam_leap" {
+            let mut dir = sim.doom.vel.horizontal().normalize_or_zero();
+            if dir == doomfist::Vec3::ZERO {
+                dir = facing.horizontal().normalize_or_zero();
+            }
+            fx.push(Fx { kind: FxKind::Shockwave, pos: v(sim.doom.pos), dir: v(dir), t: 0.0, value: 0.0 });
+        }
+        prev_state = state.to_string();
+        for f in fx.iter_mut() {
+            f.t += frame_dt;
+        }
+        fx.retain(|f| f.t < f.kind.life());
+        flash.retain(|_, t| {
+            *t -= frame_dt;
+            *t > 0.0
+        });
         let state: &str = shot_pose.as_deref().unwrap_or(state);
         // First person: idle/walk/jump use the model's first-person ready pose if it has one.
         let first_person = !third_person && (shot.is_none() || shot_fp);
@@ -408,13 +495,15 @@ async fn main() {
             v(d.pos) + vec3(0.0, 1.6, 0.0)
         };
         let target = if shot.is_some() && !shot_fp { v(d.pos) + vec3(0.0, 1.1, 0.0) } else { eye + look };
-        set_camera(&Camera3D {
+        let camera = Camera3D {
             position: eye,
             target,
             up: vec3(0.0, 1.0, 0.0),
             fovy: settings.fovy(),
             ..Default::default()
-        });
+        };
+        set_camera(&camera);
+        let view_proj = camera.matrix();
 
         draw_cube(vec3(0.0, -0.05, 0.0), vec3(82.0, 0.1, 82.0), None, Color::from_rgba(110, 120, 110, 255));
         draw_grid(40, 2.0, DARKGRAY, Color::from_rgba(95, 105, 95, 255));
@@ -436,12 +525,19 @@ async fn main() {
             tint.r = (tint.r + 0.5).min(1.0);
             tint.g = (tint.g + 0.5).min(1.0);
             tint.b = (tint.b + 0.5).min(1.0);
+            if flash.contains_key(&t.id) {
+                tint = Color::new(1.6, 1.5, 1.0, 1.0);
+            }
             draw_model(&dummy_model, &AnimMap::default(), &dummy_player, v(t.pos), v(to_doom), tint);
             let frac = (t.health / t.max_health).clamp(0.0, 1.0);
             draw_cube(v(t.pos) + vec3(0.0, 2.2, 0.0), vec3(1.2 * frac, 0.12, 0.12), None, GREEN);
         }
         for w in trail.iter().zip(trail.iter().skip(1)) {
             draw_line_3d(*w.0, *w.1, Color::from_rgba(255, 220, 60, 200));
+        }
+        let slam = sim.doom.tun.slam;
+        for f in &fx {
+            f.draw_3d(slam.hit_ahead_min, slam.hit_ahead_max, slam.hit_cone_half_angle_deg);
         }
         let tint = if d.empowered { Color::new(1.0, 0.75, 0.45, 1.0) } else { WHITE };
         if first_person {
@@ -457,6 +553,17 @@ async fn main() {
         // ---- HUD ----
         set_default_camera();
         let (w, h) = (screen_width(), screen_height());
+        for f in fx.iter().filter(|f| matches!(f.kind, FxKind::Number)) {
+            let p = f.pos + vec3(0.0, f.t * 1.2, 0.0);
+            let clip = view_proj * p.extend(1.0);
+            if clip.w > 0.1 {
+                let (sx, sy) = ((clip.x / clip.w + 1.0) * 0.5 * w, (1.0 - clip.y / clip.w) * 0.5 * h);
+                let alpha = (1.0 - f.t / f.kind.life()).clamp(0.0, 1.0);
+                let text = format!("{:.0}", f.value);
+                draw_text(&text, sx - 8.0, sy + 2.0, 34.0, Color::new(0.0, 0.0, 0.0, alpha * 0.6));
+                draw_text(&text, sx - 10.0, sy, 34.0, Color::new(1.0, 0.85, 0.2, alpha));
+            }
+        }
         draw_line(w / 2.0 - 8.0, h / 2.0, w / 2.0 + 8.0, h / 2.0, 2.0, WHITE);
         draw_line(w / 2.0, h / 2.0 - 8.0, w / 2.0, h / 2.0 + 8.0, 2.0, WHITE);
 
@@ -485,7 +592,7 @@ async fn main() {
             draw_text(&format!("{t:7.2}  {text}"), 16.0, h - 220.0 + i as f32 * 22.0, 20.0, Color::from_rgba(30, 30, 30, 255));
         }
         draw_text(
-            "WASD move  Space jump  RMB punch (hold)  Shift slam  E block  F record  V 3rd person  T slow-mo  R reset  H dummies  [ ] sensitivity  Esc mouse",
+            "WASD move  Space jump  RMB punch (hold)  Shift slam  E block  V melee  F record  Tab 3rd person  T slow-mo  R reset  H dummies  [ ] sensitivity  Esc mouse",
             16.0,
             h - 16.0,
             18.0,

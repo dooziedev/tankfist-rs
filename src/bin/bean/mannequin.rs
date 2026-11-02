@@ -271,6 +271,14 @@ fn clips(bones: &[Bone]) -> Vec<Clip> {
             .rot(THIGH_R, &[(0.0, -10.0, 0.0, -5.0)])
             .rot(THIGH_L, &[(0.0, 10.0, 0.0, 5.0)])
             .done(),
+        // Quick melee: a short backhand swing with the gauntlet (right) arm.
+        ClipBuilder::new("melee", 0.3)
+            .rot(CHEST, &[(0.0, 0.0, -20.0, 0.0), (0.12, 0.0, 25.0, 0.0), (0.3, 0.0, 0.0, 0.0)])
+            .rot(UARM_R, &[(0.0, -80.0, 30.0, -40.0), (0.12, -85.0, -40.0, -10.0), (0.3, -50.0, 0.0, -10.0)])
+            .rot(FARM_R, &[(0.0, -60.0, 0.0, 0.0), (0.12, -15.0, 0.0, 0.0), (0.3, -40.0, 0.0, 0.0)])
+            .rot(UARM_L, &[(0.0, -40.0, 0.0, 10.0)])
+            .rot(FARM_L, &[(0.0, -60.0, 0.0, 0.0)])
+            .done(),
         // First-person ready pose: gauntlet (right) raised in front, cannon hand (left) forward.
         ClipBuilder::new("fp_idle", 2.0)
             .rot(UARM_R, &[(0.0, -55.0, 0.0, 15.0), (1.0, -58.0, 0.0, 15.0), (2.0, -55.0, 0.0, 15.0)])

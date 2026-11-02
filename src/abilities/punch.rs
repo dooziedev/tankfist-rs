@@ -292,9 +292,10 @@ impl Doomfist {
 
         let main = world.targets[idx].pos;
         let mut hit = vec![idx];
-        if s.empowered && p.empowered_splash_radius > 0.0 {
+        let splash = if s.empowered { p.empowered_splash_radius } else { p.splash_radius };
+        if splash > 0.0 {
             for (i, t) in world.targets.iter().enumerate() {
-                if i != idx && t.health > 0.0 && t.pos.distance(main) <= p.empowered_splash_radius {
+                if i != idx && t.health > 0.0 && t.pos.distance(main) <= splash {
                     hit.push(i);
                 }
             }

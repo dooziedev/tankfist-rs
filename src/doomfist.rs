@@ -54,11 +54,13 @@ pub struct Cooldowns {
     pub punch: f32,
     pub slam: f32,
     pub block: f32,
+    pub melee: f32,
 }
 
 /// Buttons that went down this tick.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Pressed {
+    pub melee: bool,
     pub jump: bool,
     pub secondary: bool,
     pub ability1: bool,
@@ -68,6 +70,7 @@ pub struct Pressed {
 impl Pressed {
     pub fn new(prev: &Input, now: &Input) -> Self {
         Self {
+            melee: now.melee && !prev.melee,
             jump: now.jump && !prev.jump,
             secondary: now.secondary && !prev.secondary,
             ability1: now.ability1 && !prev.ability1,
@@ -93,6 +96,8 @@ pub struct Doomfist {
     pub cooldowns: Cooldowns,
     pub empowered: bool,
     pub empowered_timer: f32,
+    /// Seconds since the last quick melee (for animation); large when none recently.
+    pub melee_anim: f32,
     /// Slam was pressed last tick; Overwatch launches it one tick after the press.
     pub slam_queued: bool,
     pub action: Action,
@@ -116,6 +121,7 @@ impl Doomfist {
             empowered: false,
             empowered_timer: 0.0,
             slam_queued: false,
+            melee_anim: 99.0,
             action: Action::Idle,
             prev_input: Input::default(),
             pending: Vec::new(),
@@ -180,6 +186,7 @@ impl Doomfist {
         self.block_input(&pressed);
         self.slam_input(&pressed);
         self.punch_input(input, &pressed);
+        self.melee_input(&pressed, world);
 
         let mode = self.update_action(input, world, dt);
         self.movement_step(input, &pressed, mode, world, dt);
@@ -194,6 +201,8 @@ impl Doomfist {
         c.punch = (c.punch - dt).max(0.0);
         c.slam = (c.slam - dt).max(0.0);
         c.block = (c.block - dt).max(0.0);
+        c.melee = (c.melee - dt).max(0.0);
+        self.melee_anim += dt;
 
         if self.empowered {
             self.empowered_timer += dt;

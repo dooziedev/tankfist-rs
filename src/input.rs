@@ -17,6 +17,8 @@ pub struct Input {
     pub ability1: bool,
     /// Power Block.
     pub ability2: bool,
+    /// Quick melee.
+    pub melee: bool,
 }
 
 impl Input {

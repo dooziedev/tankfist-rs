@@ -5,10 +5,12 @@ use crate::math::Vec3;
 pub enum Ability {
     RocketPunch,
     SeismicSlam,
+    Melee,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HitKind {
+    Melee,
     Impact,
     WallSlam,
     Slam,

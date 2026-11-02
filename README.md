@@ -14,8 +14,8 @@ cargo run --release --bin bean
 ```
 
 Mouse look, WASD, Space jump, right mouse Rocket Punch (hold to charge), Shift Seismic Slam,
-E Power Block. V third person, T slow motion, R reset, H respawn dummies, F record, Esc mouse,
-[ and ] change sensitivity.
+E Power Block, V quick melee. Tab third person, T slow motion, R reset, H respawn dummies,
+F record, Esc mouse, [ and ] change sensitivity.
 
 Mouse sensitivity and FOV use Overwatch's numbers and are saved in `bean_settings.txt`
 (`sensitivity = 5`, `fov = 103` by default; this file is git-ignored).

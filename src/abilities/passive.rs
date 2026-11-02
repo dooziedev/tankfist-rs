@@ -22,7 +22,11 @@ impl Doomfist {
         let p = self.tun.passive;
         let mut gained = 0.0;
         for e in events.iter() {
-            if let Event::DamageDealt { amount, .. } = e {
+            // Only abilities feed the passive, not quick melee.
+            if let Event::DamageDealt { amount, ability, .. } = e {
+                if *ability == crate::events::Ability::Melee {
+                    continue;
+                }
                 gained += p.per_hit + amount * p.damage_fraction;
             }
         }

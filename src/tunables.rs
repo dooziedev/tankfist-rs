@@ -18,6 +18,7 @@ pub struct Tunables {
     pub block: BlockTun,
     pub punch: PunchTun,
     pub slam: SlamTun,
+    pub melee: MeleeTun,
     pub interactions: Interactions,
 }
 
@@ -37,6 +38,7 @@ impl Default for Tunables {
             block: BlockTun::default(),
             punch: PunchTun::default(),
             slam: SlamTun::default(),
+            melee: MeleeTun::default(),
             interactions: Interactions::default(),
         }
     }
@@ -244,6 +246,10 @@ pub struct PunchTun {
     /// Full-speed dash ticks at zero / full charge (normal: 8 / 28).
     pub empowered_min_ticks: u32,
     pub empowered_max_ticks: u32,
+    /// A normal punch also hits other enemies within this distance of the one it connects with,
+    /// m. [from the user 2026-11-02: punches hit more than one enemy; the radius is a guess
+    /// copied from the empowered one until suite 45 of auto_gun_tests.txt is run]
+    pub splash_radius: f32,
     /// Other enemies within this distance of the main target are also hit, m. [measured
     /// 2026-11-02 (hit-02): 3 m away hit, 4 m not; 3.5 is the middle]
     pub empowered_splash_radius: f32,
@@ -289,6 +295,7 @@ impl Default for PunchTun {
             empowered_knockback_mult: 1.0,
             empowered_min_ticks: 8,
             empowered_max_ticks: 26,
+            splash_radius: 3.5,
             empowered_splash_radius: 3.5,
         }
     }
@@ -383,6 +390,25 @@ impl Default for SlamTun {
             knockback: 0.0,
             knockback_up: 0.0,
         }
+    }
+}
+
+/// Quick melee. All [guess] until workshop/auto_gun_tests.txt (suites 46-47) is run.
+#[derive(Clone, Copy, Debug)]
+pub struct MeleeTun {
+    pub damage: f32,
+    /// Reach from Doomfist's center, m, and half-angle of the swing, degrees.
+    pub range: f32,
+    pub half_angle_deg: f32,
+    /// Seconds before the next melee.
+    pub cooldown: f32,
+    /// Flat knockback on the target, m/s.
+    pub knockback: f32,
+}
+
+impl Default for MeleeTun {
+    fn default() -> Self {
+        Self { damage: 40.0, range: 2.5, half_angle_deg: 45.0, cooldown: 1.0, knockback: 0.0 }
     }
 }
 
