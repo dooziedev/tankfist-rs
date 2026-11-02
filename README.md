@@ -18,7 +18,10 @@ Mouse look, WASD, Space jump, right mouse Rocket Punch (hold to charge), Shift S
 E Power Block, V quick melee, left mouse Hand Cannon. Tab third person, T slow motion, R reset, H respawn dummies,
 F record, Esc mouse, [ and ] change sensitivity.
 
-Mouse sensitivity and FOV use Overwatch's numbers and are saved in `bean_settings.txt`
+G toggles the slam preview: the leap's path and the landing hit cone, red when it would hit
+a dummy (marked with a red dot).
+
+All keys can be changed in `bean_settings.txt`. Mouse sensitivity and FOV use Overwatch's numbers and are saved in `bean_settings.txt`
 (`sensitivity = 5`, `fov = 103` by default; this file is git-ignored).
 
 ## What's in it
@@ -45,7 +48,8 @@ Two ways, both through [Issues](../../issues/new/choose):
   attach the log file to a **Log submission** issue. Step-by-step:
   [docs/submitting-logs.md](docs/submitting-logs.md). Logs are numbers only.
 - **Play the Rust version** and open a **Bug / feels wrong** issue when something doesn't match
-  Overwatch. Pressing F in bean records your run to `logs/bean-*.txt`; attach that too.
+  Overwatch. Pressing F in bean records your run (you, the dummies and all damage) to
+  `logs/bean-*.txt`; attach that too.
 
 To check a log yourself:
 

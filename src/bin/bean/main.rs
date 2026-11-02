@@ -23,7 +23,7 @@ use doomfist::events::Event;
 use doomfist::world::{Aabb, Target};
 use doomfist::log::{parse_log, split_takes};
 use doomfist::playback::{ticks_from_take, workshop_script, MAX_TICKS};
-use doomfist::record::log_rows;
+use doomfist::record::{event_rows, log_rows, world_rows};
 use doomfist::{Input, Sim, Tunables, Vec3 as DVec3};
 use macroquad::prelude::*;
 use std::collections::VecDeque;
@@ -150,14 +150,101 @@ impl Fx {
     }
 }
 
+/// Where a slam would land: the leap's path, the landing point and direction, and which dummies
+/// it would hit.
+struct SlamPreview {
+    path: Vec<Vec3>,
+    land: Vec3,
+    dir: Vec3,
+    hits: Vec<u32>,
+    /// True while a slam is already in the air (otherwise this is "if you pressed slam now").
+    in_flight: bool,
+}
+
+/// Runs a copy of the sim forward to see where a slam lands. Uses the current aim and movement
+/// keys (steering), no jump. `None` when no slam can start right now.
+fn predict_slam(sim: &Sim, held: &Input) -> Option<SlamPreview> {
+    let in_air = |s: &Sim| matches!(&s.doom.action, Action::Slam(st) if matches!(st.phase, SlamPhase::Air { .. }));
+    let in_flight = in_air(sim);
+    if !in_flight && (sim.doom.cooldowns.slam > 0.0 || !matches!(sim.doom.action, Action::Idle)) {
+        return None;
+    }
+    let mut s = sim.clone();
+    s.world.projectiles.clear();
+    let mut path = vec![v(s.doom.pos)];
+    let mut pressed = in_flight;
+    let mut hits = Vec::new();
+    let mut last_dir = DVec3::ZERO;
+    for _ in 0..400 {
+        let mut inp = held.clone();
+        inp.ability1 = !pressed;
+        pressed = true;
+        let flying = in_air(&s);
+        if flying {
+            let h = s.doom.vel.horizontal();
+            if h.length() > 0.1 {
+                last_dir = h.normalize_or_zero();
+            }
+        }
+        let events = s.step(&inp);
+        for e in &events {
+            if let Event::DamageDealt { ability: doomfist::events::Ability::SeismicSlam, target, .. } = e {
+                hits.push(*target);
+            }
+        }
+        path.push(v(s.doom.pos));
+        match &s.doom.action {
+            Action::Slam(st) if matches!(st.phase, SlamPhase::Air { .. }) => {}
+            Action::Slam(_) => {
+                return Some(SlamPreview { path, land: v(s.doom.pos), dir: v(last_dir), hits, in_flight });
+            }
+            // Not started yet (the slam launches the tick after the press).
+            _ if path.len() <= 3 && !in_flight => {}
+            _ => return None,
+        }
+    }
+    None
+}
+
+fn draw_slam_preview(pv: &SlamPreview, sim: &Sim) {
+    let sl = sim.doom.tun.slam;
+    let col = if pv.hits.is_empty() { Color::new(0.2, 0.9, 1.0, 0.8) } else { Color::new(1.0, 0.35, 0.2, 0.95) };
+    if !pv.in_flight {
+        for w in pv.path.windows(2) {
+            draw_line_3d(w[0], w[1], Color::new(col.r, col.g, col.b, 0.35));
+        }
+    }
+    let ground = vec3(pv.land.x, 0.05, pv.land.z);
+    draw_sphere_wires(ground, 0.25, None, col);
+    if pv.dir != Vec3::ZERO {
+        let side = vec3(pv.dir.z, 0.0, -pv.dir.x);
+        let a = sl.hit_cone_half_angle_deg.to_radians();
+        let point = |dist: f32, ang: f32| ground + (pv.dir * ang.cos() + side * ang.sin()) * dist;
+        let steps = 20;
+        for i in 0..steps {
+            let a0 = -a + 2.0 * a * i as f32 / steps as f32;
+            let a1 = -a + 2.0 * a * (i + 1) as f32 / steps as f32;
+            draw_line_3d(point(sl.hit_ahead_max, a0), point(sl.hit_ahead_max, a1), col);
+            draw_line_3d(point(sl.hit_ahead_min, a0), point(sl.hit_ahead_min, a1), col);
+        }
+        draw_line_3d(point(sl.hit_ahead_min, -a), point(sl.hit_ahead_max, -a), col);
+        draw_line_3d(point(sl.hit_ahead_min, a), point(sl.hit_ahead_max, a), col);
+    }
+    for id in &pv.hits {
+        if let Some(t) = sim.world.target(*id) {
+            draw_sphere_wires(v(t.pos) + vec3(0.0, 2.3, 0.0), 0.2, None, col);
+        }
+    }
+}
+
 /// The controls line at the bottom of the screen, from the current keybinds.
 fn help_line(k: &keys::Keybinds) -> String {
     let l = |a| k.label(a);
     format!(
-        "{}{}{}{} move  {} jump  {} Hand Cannon  {} punch (hold)  {} slam  {} block  {} melee  {} record  {} 3rd person  {} slow-mo  {} reset  {} dummies  {} {} sens  {} mouse   (keys: {SETTINGS_FILE})",
+        "{}{}{}{} move  {} jump  {} Hand Cannon  {} punch (hold)  {} slam  {} block  {} melee  {} record  {} 3rd person  {} slow-mo  {} reset  {} dummies  {} slam preview  {} {} sens  {} mouse   (keys: {SETTINGS_FILE})",
         l(Act::Forward), l(Act::Left), l(Act::Back), l(Act::Right), l(Act::Jump), l(Act::HandCannon), l(Act::RocketPunch),
         l(Act::SeismicSlam), l(Act::PowerBlock), l(Act::Melee), l(Act::Record), l(Act::ThirdPerson), l(Act::SlowMo),
-        l(Act::Reset), l(Act::Dummies), l(Act::SensDown), l(Act::SensUp), l(Act::ReleaseMouse),
+        l(Act::Reset), l(Act::Dummies), l(Act::SlamPreview), l(Act::SensDown), l(Act::SensUp), l(Act::ReleaseMouse),
     )
 }
 
@@ -353,6 +440,7 @@ async fn main() {
     let mut fx: Vec<Fx> = Vec::new();
     let mut flash: std::collections::HashMap<u32, f32> = Default::default();
     let mut prev_state = String::new();
+    let mut slam_preview = true;
     for w in std::mem::take(&mut settings.warnings) {
         feed.push_front((0.0, w));
     }
@@ -410,6 +498,10 @@ async fn main() {
                 rec_msg = "recording... (F to stop)".into();
             }
         }
+        if kb.pressed(Act::SlamPreview) {
+            slam_preview = !slam_preview;
+            feed.push_front((sim.doom.time, format!("slam preview {}", if slam_preview { "on" } else { "off" })));
+        }
         if kb.pressed(Act::Dummies) {
             spawn_dummies(&mut sim);
         }
@@ -445,6 +537,8 @@ async fn main() {
             let events = sim.step(&input);
             if let Some(rows) = &mut recording {
                 rows.extend(log_rows(tick * 16, &sim.doom, &input));
+                rows.extend(world_rows(tick * 16, &sim.world));
+                rows.extend(event_rows(tick * 16, &events));
             }
             for e in events {
                 if matches!(e, Event::Shot) {
@@ -561,6 +655,17 @@ async fn main() {
         for w in trail.iter().zip(trail.iter().skip(1)) {
             draw_line_3d(*w.0, *w.1, Color::from_rgba(255, 220, 60, 200));
         }
+        if slam_preview {
+            let held = Input {
+                facing,
+                move_forward: kb.axis(Act::Forward, Act::Back),
+                move_right: kb.axis(Act::Right, Act::Left),
+                ..Default::default()
+            };
+            if let Some(pv) = predict_slam(&sim, &held) {
+                draw_slam_preview(&pv, &sim);
+            }
+        }
         for p in &sim.world.projectiles {
             draw_line_3d(v(p.pos), v(p.pos - p.vel.normalize_or_zero() * 0.6), Color::new(1.0, 0.95, 0.6, 1.0));
         }
@@ -639,5 +744,45 @@ async fn main() {
             }
         }
         next_frame().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The preview must land where a real slam lands and name the dummies it really hits.
+    #[test]
+    fn slam_preview_matches_real_slam() {
+        let sim0 = new_sim();
+        // Look toward dummy 1 at (0, 12), a little down.
+        let facing = DVec3::new(0.0, -0.35, 1.0).normalize_or_zero();
+        let held = Input { facing, ..Default::default() };
+        let pv = predict_slam(&sim0, &held).expect("slam is ready");
+
+        let mut sim = sim0.clone();
+        let mut hits = Vec::new();
+        let mut press = Input { facing, ..Default::default() };
+        press.ability1 = true;
+        let mut land = None;
+        for i in 0..400 {
+            let events = sim.step(if i == 0 { &press } else { &held });
+            for e in &events {
+                if let Event::DamageDealt { target, .. } = e {
+                    hits.push(*target);
+                }
+            }
+            if let Action::Slam(st) = &sim.doom.action {
+                if !matches!(st.phase, SlamPhase::Air { .. }) && land.is_none() {
+                    land = Some(sim.doom.pos);
+                }
+            }
+        }
+        let land = v(land.expect("slam landed"));
+        assert!((land - pv.land).length() < 1e-3, "preview {:?} vs real {:?}", pv.land, land);
+        assert_eq!(pv.hits, hits);
+        assert!(!hits.is_empty(), "expected to hit a dummy, landed at {land:?}");
+        // Nothing to preview while the slam is cooling down.
+        assert!(predict_slam(&sim, &held).is_none());
     }
 }
