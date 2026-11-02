@@ -12,9 +12,11 @@
 //! Overwatch. Compare the two with `cargo run --bin compare -- <bean log> <overwatch log>`.
 
 mod anim;
+mod keys;
 mod mannequin;
 
 use anim::Model;
+use keys::Act;
 use doomfist::abilities::slam::SlamPhase;
 use doomfist::doomfist::Action;
 use doomfist::events::Event;
@@ -148,28 +150,57 @@ impl Fx {
     }
 }
 
+/// The controls line at the bottom of the screen, from the current keybinds.
+fn help_line(k: &keys::Keybinds) -> String {
+    let l = |a| k.label(a);
+    format!(
+        "{}{}{}{} move  {} jump  {} Hand Cannon  {} punch (hold)  {} slam  {} block  {} melee  {} record  {} 3rd person  {} slow-mo  {} reset  {} dummies  {} {} sens  {} mouse   (keys: {SETTINGS_FILE})",
+        l(Act::Forward), l(Act::Left), l(Act::Back), l(Act::Right), l(Act::Jump), l(Act::HandCannon), l(Act::RocketPunch),
+        l(Act::SeismicSlam), l(Act::PowerBlock), l(Act::Melee), l(Act::Record), l(Act::ThirdPerson), l(Act::SlowMo),
+        l(Act::Reset), l(Act::Dummies), l(Act::SensDown), l(Act::SensUp), l(Act::ReleaseMouse),
+    )
+}
+
 /// Player settings, read from `bean_settings.txt` (`key = value` lines). Overwatch's units:
 /// sensitivity turns 0.0066° per raw mouse count per point; FOV is horizontal degrees.
 struct Settings {
     sensitivity: f32,
     fov_h: f32,
+    keys: keys::Keybinds,
+    /// Problems found while reading the file, shown on screen at start.
+    warnings: Vec<String>,
 }
 
 const SETTINGS_FILE: &str = "bean_settings.txt";
 
 impl Settings {
     fn load() -> Settings {
-        let mut s = Settings { sensitivity: 5.0, fov_h: 103.0 };
-        if let Ok(text) = std::fs::read_to_string(SETTINGS_FILE) {
-            for line in text.lines() {
-                let Some((k, v)) = line.split('#').next().unwrap_or("").split_once('=') else { continue };
-                let Ok(v) = v.trim().parse::<f32>() else { continue };
-                match k.trim() {
-                    "sensitivity" => s.sensitivity = v,
-                    "fov" => s.fov_h = v.clamp(60.0, 120.0),
-                    _ => {}
-                }
+        let mut s = Settings { sensitivity: 5.0, fov_h: 103.0, keys: Default::default(), warnings: Vec::new() };
+        let text = std::fs::read_to_string(SETTINGS_FILE).unwrap_or_default();
+        let mut seen_binds = 0;
+        for line in text.lines() {
+            let Some((k, v)) = line.split('#').next().unwrap_or("").split_once('=') else { continue };
+            let k = k.trim();
+            match k {
+                "sensitivity" | "fov" => match v.trim().parse::<f32>() {
+                    Ok(v) if k == "sensitivity" => s.sensitivity = v,
+                    Ok(v) => s.fov_h = v.clamp(60.0, 120.0),
+                    Err(_) => s.warnings.push(format!("settings: `{k}` needs a number")),
+                },
+                _ => match s.keys.set(k, v) {
+                    Some(bad) => {
+                        seen_binds += 1;
+                        for b in bad {
+                            s.warnings.push(format!("settings: unknown key `{b}` for {k}"));
+                        }
+                    }
+                    None => s.warnings.push(format!("settings: unknown setting `{k}`")),
+                },
             }
+        }
+        // Write the file out (with every keybind listed) when it's new or missing some.
+        if seen_binds < keys::ACTS.len() && s.warnings.is_empty() {
+            s.save();
         }
         s
     }
@@ -180,7 +211,7 @@ impl Settings {
             format!("# Overwatch units: sensitivity (default 5), fov = horizontal degrees (default 103)
 sensitivity = {}
 fov = {}
-", self.sensitivity, self.fov_h),
+{}", self.sensitivity, self.fov_h, self.keys.to_lines()),
         );
     }
 
@@ -322,10 +353,15 @@ async fn main() {
     let mut fx: Vec<Fx> = Vec::new();
     let mut flash: std::collections::HashMap<u32, f32> = Default::default();
     let mut prev_state = String::new();
+    for w in std::mem::take(&mut settings.warnings) {
+        feed.push_front((0.0, w));
+    }
 
     loop {
         // ---- input ----
-        if is_key_pressed(KeyCode::Escape) {
+        settings.keys.frame();
+        let kb = settings.keys.clone();
+        if kb.pressed(Act::ReleaseMouse) {
             grabbed = !grabbed;
             set_cursor_grab(grabbed);
             show_mouse(!grabbed);
@@ -346,25 +382,25 @@ async fn main() {
             pitch = (pitch - dy * sens).clamp(-1.55, 1.55);
         }
         // [ and ] change sensitivity in Overwatch steps of 0.25 and save it.
-        for (key, step) in [(KeyCode::LeftBracket, -0.25), (KeyCode::RightBracket, 0.25)] {
-            if is_key_pressed(key) {
+        for (key, step) in [(Act::SensDown, -0.25), (Act::SensUp, 0.25)] {
+            if kb.pressed(key) {
                 settings.sensitivity = (settings.sensitivity + step).clamp(0.25, 100.0);
                 settings.save();
                 feed.push_front((sim.doom.time, format!("sensitivity {:.2}", settings.sensitivity)));
             }
         }
-        if is_key_pressed(KeyCode::Tab) {
+        if kb.pressed(Act::ThirdPerson) {
             third_person = !third_person;
         }
-        if is_key_pressed(KeyCode::T) {
+        if kb.pressed(Act::SlowMo) {
             speed_i = (speed_i + 1) % speeds.len();
         }
-        if is_key_pressed(KeyCode::R) {
+        if kb.pressed(Act::Reset) {
             sim = new_sim();
             trail.clear();
             top_speed = 0.0;
         }
-        if is_key_pressed(KeyCode::F) {
+        if kb.pressed(Act::Record) {
             if recording.is_some() {
                 let mut rows = recording.take().unwrap();
                 rows.push(format!("R;{};1;False", tick * 16));
@@ -374,18 +410,17 @@ async fn main() {
                 rec_msg = "recording... (F to stop)".into();
             }
         }
-        if is_key_pressed(KeyCode::H) {
+        if kb.pressed(Act::Dummies) {
             spawn_dummies(&mut sim);
         }
-        jump_latch |= is_key_pressed(KeyCode::Space);
-        slam_latch |= is_key_pressed(KeyCode::LeftShift);
-        block_latch |= is_key_pressed(KeyCode::E);
-        punch_latch |= is_mouse_button_pressed(MouseButton::Right);
-        melee_latch |= is_key_pressed(KeyCode::V);
-        fire_latch |= is_mouse_button_pressed(MouseButton::Left);
+        jump_latch |= kb.pressed(Act::Jump);
+        slam_latch |= kb.pressed(Act::SeismicSlam);
+        block_latch |= kb.pressed(Act::PowerBlock);
+        punch_latch |= kb.pressed(Act::RocketPunch);
+        melee_latch |= kb.pressed(Act::Melee);
+        fire_latch |= kb.pressed(Act::HandCannon);
 
         let facing = DVec3::new(yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos());
-        let axis = |pos: KeyCode, neg: KeyCode| (is_key_down(pos) as i32 - is_key_down(neg) as i32) as f32;
 
         // ---- fixed-rate sim ----
         acc += get_frame_time().min(0.1) * speeds[speed_i];
@@ -393,15 +428,15 @@ async fn main() {
         while acc >= dt && steps < 10 {
             let input = Input {
                 facing,
-                move_forward: axis(KeyCode::W, KeyCode::S),
-                move_right: axis(KeyCode::D, KeyCode::A),
-                jump: is_key_down(KeyCode::Space) || jump_latch,
-                crouch: is_key_down(KeyCode::LeftControl),
-                secondary: is_mouse_button_down(MouseButton::Right) || punch_latch,
-                ability1: is_key_down(KeyCode::LeftShift) || slam_latch,
-                ability2: is_key_down(KeyCode::E) || block_latch,
-                melee: is_key_down(KeyCode::V) || melee_latch,
-                primary: is_mouse_button_down(MouseButton::Left) || fire_latch,
+                move_forward: kb.axis(Act::Forward, Act::Back),
+                move_right: kb.axis(Act::Right, Act::Left),
+                jump: kb.down(Act::Jump) || jump_latch,
+                crouch: kb.down(Act::Crouch),
+                secondary: kb.down(Act::RocketPunch) || punch_latch,
+                ability1: kb.down(Act::SeismicSlam) || slam_latch,
+                ability2: kb.down(Act::PowerBlock) || block_latch,
+                melee: kb.down(Act::Melee) || melee_latch,
+                primary: kb.down(Act::HandCannon) || fire_latch,
             };
             (jump_latch, slam_latch, block_latch, punch_latch) = (false, false, false, false);
             melee_latch = false;
@@ -589,7 +624,7 @@ async fn main() {
             draw_text(&format!("{t:7.2}  {text}"), 16.0, h - 220.0 + i as f32 * 22.0, 20.0, Color::from_rgba(30, 30, 30, 255));
         }
         draw_text(
-            "WASD move  Space jump  LMB Hand Cannon  RMB punch (hold)  Shift slam  E block  V melee  F record  Tab 3rd person  T slow-mo  R reset  H dummies  [ ] sens  Esc mouse",
+            &help_line(&settings.keys),
             16.0,
             h - 16.0,
             18.0,

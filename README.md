@@ -34,7 +34,7 @@ Mouse sensitivity and FOV use Overwatch's numbers and are saved in `bean_setting
 | `src/bin/analyze.rs` | Summaries and tables for Workshop logs |
 | `src/bin/compare.rs` | Line up two runs (or the sim against a log) and show where they split |
 | `workshop/` | Workshop scripts: manual logger, automatic test suites, playback |
-| `logs/` | Measurement logs from Overwatch (numbers only) used by the tests |
+| `logs/` | Not in the repo. Put Overwatch logs here; the replay tests use them when present and skip otherwise |
 | `tests/` | Ability tests plus replays of real logs that must keep matching |
 
 ## Help test it
@@ -50,11 +50,11 @@ Two ways, both through [Issues](../../issues/new/choose):
 To check a log yourself:
 
 ```bash
-cargo run --bin analyze -- logs/hit-01.txt
+cargo run --bin analyze -- path/to/Log-....txt
 ```
 
 ```bash
-cargo run --bin compare -- sim logs/compare-01.txt --ow-take 1
+cargo run --bin compare -- sim path/to/Log-....txt --ow-take 1
 ```
 
 ## Status

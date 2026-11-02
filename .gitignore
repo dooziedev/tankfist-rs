@@ -1,4 +1,3 @@
 /target
-/logs/*.csv
-/logs/bean-*
+/logs/
 /bean_settings.txt
