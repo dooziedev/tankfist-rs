@@ -19,6 +19,7 @@ pub struct Tunables {
     pub punch: PunchTun,
     pub slam: SlamTun,
     pub melee: MeleeTun,
+    pub gun: GunTun,
     pub interactions: Interactions,
 }
 
@@ -39,6 +40,7 @@ impl Default for Tunables {
             punch: PunchTun::default(),
             slam: SlamTun::default(),
             melee: MeleeTun::default(),
+            gun: GunTun::default(),
             interactions: Interactions::default(),
         }
     }
@@ -247,8 +249,7 @@ pub struct PunchTun {
     pub empowered_min_ticks: u32,
     pub empowered_max_ticks: u32,
     /// A normal punch also hits other enemies within this distance of the one it connects with,
-    /// m. [from the user 2026-11-02: punches hit more than one enemy; the radius is a guess
-    /// copied from the empowered one until suite 45 of auto_gun_tests.txt is run]
+    /// m. [measured 2026-11-02 (gun-01 suite 45): 2 m away hit, 3 m not]
     pub splash_radius: f32,
     /// Other enemies within this distance of the main target are also hit, m. [measured
     /// 2026-11-02 (hit-02): 3 m away hit, 4 m not; 3.5 is the middle]
@@ -295,7 +296,7 @@ impl Default for PunchTun {
             empowered_knockback_mult: 1.0,
             empowered_min_ticks: 8,
             empowered_max_ticks: 26,
-            splash_radius: 3.5,
+            splash_radius: 2.5,
             empowered_splash_radius: 3.5,
         }
     }
@@ -393,22 +394,81 @@ impl Default for SlamTun {
     }
 }
 
-/// Quick melee. All [guess] until workshop/auto_gun_tests.txt (suites 46-47) is run.
+/// Quick melee, measured 2026-11-02 (logs/gun-01.txt, suites 46-47).
 #[derive(Clone, Copy, Debug)]
 pub struct MeleeTun {
+    /// [measured]
     pub damage: f32,
-    /// Reach from Doomfist's center, m, and half-angle of the swing, degrees.
+    /// Reach from Doomfist's center to the target's edge, m. [partly measured: a dummy 2.5 m
+    /// away was hit, 3.5 m not]
     pub range: f32,
+    /// Half-angle of the swing, degrees. [partly measured: 30° hit, 60° not]
     pub half_angle_deg: f32,
-    /// Seconds before the next melee.
+    /// Seconds before the next melee. [measured: ready again 1.0 s after a hit]
     pub cooldown: f32,
-    /// Flat knockback on the target, m/s.
+    /// A press this early still goes through when the cooldown ends, s. [partly measured: 0.1 s
+    /// early went through, 0.3 s early didn't]
+    pub buffer: f32,
+    /// Flat knockback on the target, m/s (with the normal knocked state). [measured: 1 m/s,
+    /// target slid 0.30 m]
     pub knockback: f32,
 }
 
 impl Default for MeleeTun {
     fn default() -> Self {
-        Self { damage: 40.0, range: 2.5, half_angle_deg: 45.0, cooldown: 1.0, knockback: 0.0 }
+        Self { damage: 40.0, range: 2.6, half_angle_deg: 45.0, cooldown: 1.0, buffer: 0.2, knockback: 1.0 }
+    }
+}
+
+/// Hand Cannon, measured 2026-11-02 (logs/gun-01.txt, suites 40-44).
+#[derive(Clone, Copy, Debug)]
+pub struct GunTun {
+    /// Shots in a full clip. [measured]
+    pub clip: u32,
+    /// Seconds between shots while holding fire. [measured: 0.32-0.336]
+    pub fire_interval: f32,
+    /// The first shell comes back this long after the last shot, then one every
+    /// `refill_interval`, s. The reload button does nothing. [measured]
+    pub refill_delay: f32,
+    pub refill_interval: f32,
+    /// Pellets per shot, damage each, headshot multiplier. [measured: 11 x 5, 2x]
+    pub pellets: u32,
+    pub pellet_damage: f32,
+    pub headshot_mult: f32,
+    /// Pellet speed, m/s. [measured: ~78 from hit times at 3-30 m]
+    pub pellet_speed: f32,
+    /// Damage is full up to `falloff_start` m, then falls in a straight line to `falloff_min`
+    /// of full at `falloff_end` m. [measured: 77% at 20 m, 31% at 30 m]
+    pub falloff_start: f32,
+    pub falloff_end: f32,
+    pub falloff_min: f32,
+    /// Pellets disappear after this far, m. [guess]
+    pub max_range: f32,
+    /// Ring of pellets around the centre one, this many degrees out. [partly measured: fits how
+    /// many of 11 hit an Ana at 10, 15 and 20 m (9, 5, 5 vs logged 8, 6, 5)]
+    pub spread_deg: f32,
+    /// Pellets start this high above the feet, m. [guess]
+    pub muzzle_height: f32,
+}
+
+impl Default for GunTun {
+    fn default() -> Self {
+        Self {
+            clip: 4,
+            fire_interval: 0.336,
+            refill_delay: 0.72,
+            refill_interval: 0.40,
+            pellets: 11,
+            pellet_damage: 5.0,
+            headshot_mult: 2.0,
+            pellet_speed: 78.0,
+            falloff_start: 15.0,
+            falloff_end: 30.0,
+            falloff_min: 0.3,
+            max_range: 60.0,
+            spread_deg: 2.6,
+            muzzle_height: 1.5,
+        }
     }
 }
 

@@ -302,7 +302,7 @@ fn event_text(e: &Event) -> Option<String> {
         Event::EmpowerConsumed => "empower used".into(),
         Event::EmpowerExpired => "empower expired".into(),
         Event::DamageTaken { taken, blocked, .. } => format!("took {taken:.0} (blocked {blocked:.0})"),
-        Event::Knockback { .. } => return None,
+        Event::Knockback { .. } | Event::Shot => return None,
     })
 }
 
@@ -341,6 +341,8 @@ async fn main() {
     // Presses shorter than a tick still count: latch them until the next sim step.
     let (mut jump_latch, mut slam_latch, mut block_latch, mut punch_latch) = (false, false, false, false);
     let mut melee_latch = false;
+    let mut fire_latch = false;
+    let mut since_shot = 99.0f32;
     // Hit effects: slam shockwaves, impact bursts, hit flashes and floating damage numbers.
     let mut fx: Vec<Fx> = Vec::new();
     let mut flash: std::collections::HashMap<u32, f32> = Default::default();
@@ -405,6 +407,7 @@ async fn main() {
         block_latch |= is_key_pressed(KeyCode::E);
         punch_latch |= is_mouse_button_pressed(MouseButton::Right);
         melee_latch |= is_key_pressed(KeyCode::V);
+        fire_latch |= is_mouse_button_pressed(MouseButton::Left);
 
         let facing = DVec3::new(yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos());
         let axis = |pos: KeyCode, neg: KeyCode| (is_key_down(pos) as i32 - is_key_down(neg) as i32) as f32;
@@ -423,15 +426,20 @@ async fn main() {
                 ability1: is_key_down(KeyCode::LeftShift) || slam_latch,
                 ability2: is_key_down(KeyCode::E) || block_latch,
                 melee: is_key_down(KeyCode::V) || melee_latch,
+                primary: is_mouse_button_down(MouseButton::Left) || fire_latch,
             };
             (jump_latch, slam_latch, block_latch, punch_latch) = (false, false, false, false);
             melee_latch = false;
+            fire_latch = false;
             tick += 1;
             let events = sim.step(&input);
             if let Some(rows) = &mut recording {
                 rows.extend(log_rows(tick * 16, &sim.doom, &input));
             }
             for e in events {
+                if matches!(e, Event::Shot) {
+                    since_shot = 0.0;
+                }
                 if let Event::DamageDealt { target, amount, .. } = e {
                     if let Some(t) = sim.world.target(target) {
                         fx.push(Fx { kind: FxKind::Burst, pos: v(t.center()), dir: Vec3::ZERO, t: 0.0, value: 0.0 });
@@ -455,7 +463,15 @@ async fn main() {
 
         // ---- animation ----
         let frame_dt = get_frame_time().min(0.1) * speeds[speed_i];
-        let (state, rate) = anim_state(&sim.doom);
+        since_shot += frame_dt;
+        let (mut state, rate) = anim_state(&sim.doom);
+        if matches!(state, "idle" | "walk" | "jump") {
+            if since_shot < 0.25 {
+                state = "fire";
+            } else if sim.doom.gun_refilling() {
+                state = "reload";
+            }
+        }
         if state == "slam_land" && prev_state == "slam_leap" {
             let mut dir = sim.doom.vel.horizontal().normalize_or_zero();
             if dir == doomfist::Vec3::ZERO {
@@ -535,6 +551,9 @@ async fn main() {
         for w in trail.iter().zip(trail.iter().skip(1)) {
             draw_line_3d(*w.0, *w.1, Color::from_rgba(255, 220, 60, 200));
         }
+        for p in &sim.world.projectiles {
+            draw_line_3d(v(p.pos), v(p.pos - p.vel.normalize_or_zero() * 0.6), Color::new(1.0, 0.95, 0.6, 1.0));
+        }
         let slam = sim.doom.tun.slam;
         for f in &fx {
             f.draw_3d(slam.hit_ahead_min, slam.hit_ahead_max, slam.hit_cone_half_angle_deg);
@@ -573,7 +592,10 @@ async fn main() {
             format!("speed {flat:6.2} m/s  vertical {:+6.2}  top {top_speed:.1}", d.vel.y),
             format!("{}  {}", action_name(&d.action), if d.grounded { "grounded" } else { "airborne" }),
             format!("HP {:.0} + {:.0} temp   {}", d.health, d.overhealth, if d.empowered { "EMPOWERED PUNCH" } else { "" }),
-            format!("cooldowns  punch {:.1}  slam {:.1}  block {:.1}", c.punch, c.slam, c.block),
+            format!(
+                "cooldowns  punch {:.1}  slam {:.1}  block {:.1}  melee {:.1}   Hand Cannon {}/{}",
+                c.punch, c.slam, c.block, c.melee, d.gun.ammo, d.tun.gun.clip
+            ),
             format!("pos ({:.1}, {:.1}, {:.1})  sim speed x{}", d.pos.x, d.pos.y, d.pos.z, speeds[speed_i]),
         ];
         for (i, line) in hud.iter().enumerate() {
@@ -592,7 +614,7 @@ async fn main() {
             draw_text(&format!("{t:7.2}  {text}"), 16.0, h - 220.0 + i as f32 * 22.0, 20.0, Color::from_rgba(30, 30, 30, 255));
         }
         draw_text(
-            "WASD move  Space jump  RMB punch (hold)  Shift slam  E block  V melee  F record  Tab 3rd person  T slow-mo  R reset  H dummies  [ ] sensitivity  Esc mouse",
+            "WASD move  Space jump  LMB Hand Cannon  RMB punch (hold)  Shift slam  E block  V melee  F record  Tab 3rd person  T slow-mo  R reset  H dummies  [ ] sens  Esc mouse",
             16.0,
             h - 16.0,
             18.0,

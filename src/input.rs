@@ -19,6 +19,8 @@ pub struct Input {
     pub ability2: bool,
     /// Quick melee.
     pub melee: bool,
+    /// Hand Cannon.
+    pub primary: bool,
 }
 
 impl Input {

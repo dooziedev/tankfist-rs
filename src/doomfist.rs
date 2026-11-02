@@ -49,6 +49,17 @@ impl Action {
     }
 }
 
+/// Hand Cannon state.
+#[derive(Clone, Copy, Debug)]
+pub struct GunState {
+    pub ammo: u32,
+    /// Seconds until the next shot is allowed.
+    pub cooldown: f32,
+    /// Seconds until the next shell comes back (while not full).
+    pub refill: f32,
+    pub since_shot: f32,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Cooldowns {
     pub punch: f32,
@@ -96,8 +107,11 @@ pub struct Doomfist {
     pub cooldowns: Cooldowns,
     pub empowered: bool,
     pub empowered_timer: f32,
+    pub gun: GunState,
     /// Seconds since the last quick melee (for animation); large when none recently.
     pub melee_anim: f32,
+    /// A melee press waiting for the cooldown to end (pressed within the buffer window).
+    pub melee_queued: bool,
     /// Slam was pressed last tick; Overwatch launches it one tick after the press.
     pub slam_queued: bool,
     pub action: Action,
@@ -107,6 +121,7 @@ pub struct Doomfist {
 
 impl Doomfist {
     pub fn new(pos: Vec3, tun: Tunables) -> Self {
+        let clip = tun.gun.clip;
         Self {
             health: tun.max_health,
             tun,
@@ -121,7 +136,9 @@ impl Doomfist {
             empowered: false,
             empowered_timer: 0.0,
             slam_queued: false,
+            gun: GunState { ammo: clip, cooldown: 0.0, refill: 0.0, since_shot: 99.0 },
             melee_anim: 99.0,
+            melee_queued: false,
             action: Action::Idle,
             prev_input: Input::default(),
             pending: Vec::new(),
@@ -187,6 +204,7 @@ impl Doomfist {
         self.slam_input(&pressed);
         self.punch_input(input, &pressed);
         self.melee_input(&pressed, world);
+        self.gun_update(input, world, dt);
 
         let mode = self.update_action(input, world, dt);
         self.movement_step(input, &pressed, mode, world, dt);

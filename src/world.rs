@@ -72,10 +72,41 @@ impl Target {
     }
 }
 
+/// A Hand Cannon pellet in flight.
+#[derive(Clone, Copy, Debug)]
+pub struct Projectile {
+    pub pos: Vec3,
+    pub vel: Vec3,
+    pub travelled: f32,
+    pub damage: f32,
+    pub head_mult: f32,
+    pub falloff_start: f32,
+    pub falloff_end: f32,
+    pub falloff_min: f32,
+    pub max_range: f32,
+}
+
+impl Projectile {
+    /// Damage multiplier after travelling `d` m.
+    pub fn falloff(&self, d: f32) -> f32 {
+        if d <= self.falloff_start {
+            1.0
+        } else if d >= self.falloff_end {
+            self.falloff_min
+        } else {
+            1.0 + (self.falloff_min - 1.0) * (d - self.falloff_start) / (self.falloff_end - self.falloff_start)
+        }
+    }
+}
+
+/// Height of the head zone at the top of a target, m (headshots). [guess]
+pub const HEAD_ZONE: f32 = 0.3;
+
 #[derive(Clone, Debug)]
 pub struct World {
     pub walls: Vec<Aabb>,
     pub targets: Vec<Target>,
+    pub projectiles: Vec<Projectile>,
     pub gravity: f32,
     // Knockback, measured 2026-11-02 from dummies in logs/hit-01.txt:
     /// How long a knocked target stays in the knocked state, s (20 ticks; counted from
@@ -101,6 +132,7 @@ impl World {
         Self {
             walls: Vec::new(),
             targets: Vec::new(),
+            projectiles: Vec::new(),
             gravity,
             knock_time: 0.32,
             knock_fade: 0.114,
@@ -126,9 +158,58 @@ impl World {
         None
     }
 
+    /// Moves pellets one tick: each hits the first live target it passes through (a head-zone
+    /// hit counts double), or stops at a wall or its range.
+    fn step_projectiles(&mut self, dt: f32, events: &mut Vec<Event>) {
+        let mut keep = Vec::with_capacity(self.projectiles.len());
+        for mut p in std::mem::take(&mut self.projectiles) {
+            let from = p.pos;
+            let to = from + p.vel * dt;
+            let step = (to - from).length();
+            let mut hit: Option<(usize, f32, Vec3)> = None;
+            let n = ((step / 0.1).ceil() as usize).max(1);
+            'search: for k in 1..=n {
+                let f = k as f32 / n as f32;
+                let q = from.lerp(to, f);
+                for (i, t) in self.targets.iter().enumerate() {
+                    if t.health <= 0.0 || q.y < t.pos.y || q.y > t.pos.y + t.height {
+                        continue;
+                    }
+                    if (q - t.pos).horizontal().length() <= t.radius + 0.05 {
+                        hit = Some((i, f, q));
+                        break 'search;
+                    }
+                }
+            }
+            if let Some((i, f, q)) = hit {
+                let t = &mut self.targets[i];
+                let head = q.y > t.pos.y + t.height - HEAD_ZONE;
+                let amount = p.damage * p.falloff(p.travelled + step * f) * if head { p.head_mult } else { 1.0 };
+                t.health -= amount;
+                events.push(Event::DamageDealt {
+                    ability: Ability::HandCannon,
+                    target: t.id,
+                    amount,
+                    kind: if head { HitKind::Headshot } else { HitKind::Pellet },
+                });
+                continue;
+            }
+            if self.sweep(from, to, 0.05).is_some() || to.y < 0.0 {
+                continue;
+            }
+            p.pos = to;
+            p.travelled += step;
+            if p.travelled < p.max_range {
+                keep.push(p);
+            }
+        }
+        self.projectiles = keep;
+    }
+
     /// Moves targets one tick. Punched targets that reach a wall while still sliding take
     /// wall-slam damage.
     pub fn step(&mut self, dt: f32, events: &mut Vec<Event>) {
+        self.step_projectiles(dt, events);
         let g = self.gravity;
         let (knock_fade, cap, over, over_decel, friction) =
             (self.knock_fade, self.max_ground_speed, self.overspeed, self.overspeed_decel, self.ground_friction);

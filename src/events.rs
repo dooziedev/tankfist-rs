@@ -6,11 +6,14 @@ pub enum Ability {
     RocketPunch,
     SeismicSlam,
     Melee,
+    HandCannon,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HitKind {
     Melee,
+    Pellet,
+    Headshot,
     Impact,
     WallSlam,
     Slam,
@@ -32,6 +35,8 @@ pub enum Event {
     ActionStarted(ActionKind),
     ActionEnded(ActionKind, EndReason),
     Jumped,
+    /// The Hand Cannon fired a shot.
+    Shot,
     DamageDealt { ability: Ability, target: u32, amount: f32, kind: HitKind },
     Knockback { target: u32, velocity: Vec3 },
     DamageTaken { raw: f32, taken: f32, blocked: f32 },

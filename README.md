@@ -14,7 +14,7 @@ cargo run --release --bin bean
 ```
 
 Mouse look, WASD, Space jump, right mouse Rocket Punch (hold to charge), Shift Seismic Slam,
-E Power Block, V quick melee. Tab third person, T slow motion, R reset, H respawn dummies,
+E Power Block, V quick melee, left mouse Hand Cannon. Tab third person, T slow motion, R reset, H respawn dummies,
 F record, Esc mouse, [ and ] change sensitivity.
 
 Mouse sensitivity and FOV use Overwatch's numbers and are saved in `bean_settings.txt`
@@ -61,8 +61,8 @@ Measured and replaying within a few cm of Overwatch: walking, jumping, air contr
 hop, re-press cancel), Power Block, empowered punch, passive temporary health, hit damage,
 knockback and wall slams.
 
-Not built yet: Hand Cannon (measuring script ready: `workshop/auto_gun_tests.txt`), Meteor Strike,
-surface-angle bounce tech.
+Also measured: Hand Cannon (11 pellets, fire rate, auto refill, falloff), quick melee, punch
+splash. Not built yet: Meteor Strike, surface-angle bounce tech.
 
 ## Assets policy
 

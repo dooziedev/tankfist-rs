@@ -37,6 +37,7 @@ pub fn input_from_row(row: &Row) -> Option<Input> {
                 ability1,
                 ability2,
                 melee: false,
+                primary: false,
             })
         }
         _ => None,
