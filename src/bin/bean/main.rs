@@ -12,6 +12,7 @@
 //! Overwatch. Compare the two with `cargo run --bin compare -- <bean log> <overwatch log>`.
 
 mod anim;
+mod demo;
 mod keys;
 mod mannequin;
 
@@ -441,6 +442,18 @@ async fn main() {
     let mut flash: std::collections::HashMap<u32, f32> = Default::default();
     let mut prev_state = String::new();
     let mut slam_preview = true;
+    // Demo mode (README GIFs): scripted input, fixed 2 ticks per frame, every frame saved.
+    let demo = std::env::var("BEAN_DEMO").ok().map(|n| demo::scene(&n).unwrap_or_else(|| panic!("no demo scene `{n}`")));
+    let demo_out = std::env::var("BEAN_DEMO_OUT").unwrap_or_else(|_| "demo_frames".into());
+    if let Some(sc) = &demo {
+        let _ = std::fs::create_dir_all(&demo_out);
+        sim.doom.pos = sc.start;
+        (yaw, pitch) = (sc.yaw.to_radians(), sc.pitch.to_radians());
+        third_person = !matches!(sc.cam, demo::Cam::FirstPerson);
+        set_cursor_grab(false);
+        show_mouse(true);
+    }
+    let mut demo_tick = 0u32;
     for w in std::mem::take(&mut settings.warnings) {
         feed.push_front((0.0, w));
     }
@@ -512,13 +525,17 @@ async fn main() {
         melee_latch |= kb.pressed(Act::Melee);
         fire_latch |= kb.pressed(Act::HandCannon);
 
+        if let Some(sc) = &demo {
+            let (dy, dp, _) = sc.at(demo_tick);
+            (yaw, pitch) = (dy.to_radians(), dp.to_radians());
+        }
         let facing = DVec3::new(yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos());
 
         // ---- fixed-rate sim ----
-        acc += get_frame_time().min(0.1) * speeds[speed_i];
+        acc += if demo.is_some() { 2.0 * dt } else { get_frame_time().min(0.1) * speeds[speed_i] };
         let mut steps = 0;
         while acc >= dt && steps < 10 {
-            let input = Input {
+            let mut input = Input {
                 facing,
                 move_forward: kb.axis(Act::Forward, Act::Back),
                 move_right: kb.axis(Act::Right, Act::Left),
@@ -530,6 +547,10 @@ async fn main() {
                 melee: kb.down(Act::Melee) || melee_latch,
                 primary: kb.down(Act::HandCannon) || fire_latch,
             };
+            if let Some(sc) = &demo {
+                input = sc.at(demo_tick).2;
+                demo_tick += 1;
+            }
             (jump_latch, slam_latch, block_latch, punch_latch) = (false, false, false, false);
             melee_latch = false;
             fire_latch = false;
@@ -566,7 +587,7 @@ async fn main() {
         }
 
         // ---- animation ----
-        let frame_dt = get_frame_time().min(0.1) * speeds[speed_i];
+        let frame_dt = if demo.is_some() { 2.0 * dt } else { get_frame_time().min(0.1) * speeds[speed_i] };
         since_shot += frame_dt;
         let (mut state, rate) = anim_state(&sim.doom);
         if matches!(state, "idle" | "walk" | "jump") {
@@ -607,14 +628,23 @@ async fn main() {
         clear_background(Color::from_rgba(150, 190, 230, 255));
         let d = &sim.doom;
         let look = v(facing);
-        let eye = if shot.is_some() && !shot_fp {
+        let demo_cam = demo.as_ref().map(|sc| sc.cam);
+        let eye = if let Some(demo::Cam::Fixed(p)) = demo_cam {
+            v(p)
+        } else if let Some(demo::Cam::Chase) = demo_cam {
+            v(d.pos) + vec3(0.0, 3.4, 0.0) - vec3(look.x, 0.0, look.z).normalize_or_zero() * 8.0
+        } else if shot.is_some() && !shot_fp {
             v(d.pos) + vec3(look.x, 0.0, look.z).normalize_or_zero() * 3.6 + vec3(0.0, 1.3, 0.0)
         } else if third_person {
             v(d.pos) + vec3(0.0, 2.4, 0.0) - vec3(look.x, 0.0, look.z).normalize_or_zero() * 6.0
         } else {
             v(d.pos) + vec3(0.0, 1.6, 0.0)
         };
-        let target = if shot.is_some() && !shot_fp { v(d.pos) + vec3(0.0, 1.1, 0.0) } else { eye + look };
+        let target = if let Some(demo::Cam::Fixed(_)) = demo_cam {
+            v(d.pos) + vec3(0.0, 1.0, 0.0)
+        } else if let Some(demo::Cam::Chase) = demo_cam {
+            v(d.pos) + vec3(0.0, 1.4, 0.0) + vec3(look.x, 0.0, look.z).normalize_or_zero() * 4.0
+        } else if shot.is_some() && !shot_fp { v(d.pos) + vec3(0.0, 1.1, 0.0) } else { eye + look };
         let camera = Camera3D {
             position: eye,
             target,
@@ -656,11 +686,17 @@ async fn main() {
             draw_line_3d(*w.0, *w.1, Color::from_rgba(255, 220, 60, 200));
         }
         if slam_preview {
-            let held = Input {
-                facing,
-                move_forward: kb.axis(Act::Forward, Act::Back),
-                move_right: kb.axis(Act::Right, Act::Left),
-                ..Default::default()
+            let held = match &demo {
+                Some(sc) => {
+                    let i = sc.at(demo_tick).2;
+                    Input { facing, move_forward: i.move_forward, move_right: i.move_right, ..Default::default() }
+                }
+                None => Input {
+                    facing,
+                    move_forward: kb.axis(Act::Forward, Act::Back),
+                    move_right: kb.axis(Act::Right, Act::Left),
+                    ..Default::default()
+                },
             };
             if let Some(pv) = predict_slam(&sim, &held) {
                 draw_slam_preview(&pv, &sim);
@@ -713,7 +749,8 @@ async fn main() {
             ),
             format!("pos ({:.1}, {:.1}, {:.1})  sim speed x{}", d.pos.x, d.pos.y, d.pos.z, speeds[speed_i]),
         ];
-        for (i, line) in hud.iter().enumerate() {
+        let text_hud = demo.is_none();
+        for (i, line) in hud.iter().enumerate().filter(|_| text_hud) {
             draw_text(line, 16.0, 30.0 + i as f32 * 24.0, 24.0, BLACK);
         }
         if let Action::PunchCharge { t, .. } = d.action {
@@ -722,19 +759,25 @@ async fn main() {
             draw_rectangle(w / 2.0 - 100.0, h / 2.0 + 40.0, 200.0, 10.0, Color::from_rgba(0, 0, 0, 120));
             draw_rectangle(w / 2.0 - 100.0, h / 2.0 + 40.0, 200.0 * frac, 10.0, ORANGE);
         }
-        let rec_color = if recording.is_some() { RED } else { Color::from_rgba(30, 30, 30, 255) };
-        draw_text(&rec_msg, 16.0, 30.0 + 5.0 * 24.0, 22.0, rec_color);
-        draw_text(&format!("anim: {}", player.state), 16.0, 30.0 + 6.0 * 24.0, 18.0, Color::from_rgba(30, 30, 30, 255));
-        for (i, (t, text)) in feed.iter().enumerate() {
-            draw_text(&format!("{t:7.2}  {text}"), 16.0, h - 220.0 + i as f32 * 22.0, 20.0, Color::from_rgba(30, 30, 30, 255));
+        if text_hud {
+            let rec_color = if recording.is_some() { RED } else { Color::from_rgba(30, 30, 30, 255) };
+            draw_text(&rec_msg, 16.0, 30.0 + 5.0 * 24.0, 22.0, rec_color);
+            draw_text(&format!("anim: {}", player.state), 16.0, 30.0 + 6.0 * 24.0, 18.0, Color::from_rgba(30, 30, 30, 255));
+            for (i, (t, text)) in feed.iter().enumerate() {
+                draw_text(&format!("{t:7.2}  {text}"), 16.0, h - 220.0 + i as f32 * 22.0, 20.0, Color::from_rgba(30, 30, 30, 255));
+            }
+            draw_text(&help_line(&settings.keys), 16.0, h - 16.0, 18.0, Color::from_rgba(30, 30, 30, 255));
+        } else {
+            // A small speed readout is useful in the movement GIFs.
+            draw_text(&format!("{flat:5.1} m/s"), 16.0, 34.0, 30.0, BLACK);
         }
-        draw_text(
-            &help_line(&settings.keys),
-            16.0,
-            h - 16.0,
-            18.0,
-            Color::from_rgba(30, 30, 30, 255),
-        );
+        if let Some(sc) = &demo {
+            get_screen_data().export_png(&format!("{demo_out}/frame_{frame_no:04}.png"));
+            frame_no += 1;
+            if demo_tick >= sc.len() {
+                break;
+            }
+        }
 
         if let Some(path) = &shot {
             frame_no += 1;

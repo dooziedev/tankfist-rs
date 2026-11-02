@@ -6,6 +6,15 @@ Rust version.
 
 The character is a built-in mannequin with keyframed animations, all generated in code.
 
+| Rocket Punch into a wall slam | Seismic Slam with the landing preview |
+|---|---|
+| ![Rocket Punch](docs/media/punch.gif) | ![Seismic Slam](docs/media/slam.gif) |
+| **Punch, jump cancel, slam** | **Hand Cannon and quick melee** |
+| ![Movement tech](docs/media/tech.gif) | ![Hand Cannon](docs/media/gun.gif) |
+
+The character is an original test-dummy mannequin made in code; no Overwatch art is used. The
+GIFs are scripted runs of the playable demo (`python scripts/make_gifs.py` remakes them).
+
 ## Play it
 
 Needs [Rust](https://rustup.rs). Then:
